@@ -28,11 +28,6 @@ dev = [
     "pytest-cov>=5.0.0",
     "hypothesis>=6.100.0",
 ]
-console = [
-    "fastapi>=0.111.0",
-    "uvicorn[standard]>=0.30.0",
-    "sse-starlette>=2.0.0",
-]
 
 [project.scripts]
 redteamagentloop = "redteamagentloop.cli:main"
