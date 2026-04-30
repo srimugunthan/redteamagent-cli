@@ -9,6 +9,7 @@ import chromadb
 from chromadb.utils import embedding_functions
 
 _COLLECTION_NAME = "redteam_prompts"
+_DEFAULT_EMBEDDING_MODEL = str(Path(__file__).parent.parent.parent / "models" / "all-MiniLM-L6-v2")
 
 
 @dataclass
@@ -22,7 +23,7 @@ class ChromaStore:
     def __init__(
         self,
         persist_path: str,
-        embedding_model: str = "all-MiniLM-L6-v2",
+        embedding_model: str = _DEFAULT_EMBEDDING_MODEL,
         dedup_threshold: float = 0.92,
     ) -> None:
         self._dedup_threshold = dedup_threshold
