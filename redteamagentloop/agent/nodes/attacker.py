@@ -122,16 +122,6 @@ async def attacker_node(state: "RedTeamState", config: RunnableConfig) -> dict:
     if not prompt:
         return {"error": f"Attacker LLM failed after 3 attempts: {last_error}"}
 
-    # Dedup check — if too similar to an existing prompt, try up to 2 more times.
-    if storage_manager is not None:
-        for _ in range(2):
-            if not storage_manager._chroma.is_duplicate(prompt):
-                break
-            try:
-                prompt = await strategy.generate_prompt(state, attacker_llm)
-            except Exception:
-                break
-
     result: dict = {
         "current_prompt": prompt,
         "current_strategy": current,

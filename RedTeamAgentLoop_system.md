@@ -241,17 +241,7 @@ The mutation engine tracks which tactics have been tried per objective and avoid
 
 ### 4.6 Vulnerability Logger
 
-Successful attacks (score ≥ `VULN_THRESHOLD`, default 7.0) are written to a JSONL file and optionally to a ChromaDB vector store for semantic deduplication.
-
-**Deduplication logic:** Before logging, embed the successful prompt and compare cosine similarity against all previously logged prompts. If similarity > 0.92, skip — it's a near-duplicate. This prevents the log from being dominated by paraphrase variants of a single exploit.
-
-```python
-def is_duplicate(prompt: str, store: ChromaCollection, threshold=0.92) -> bool:
-    results = store.query(query_texts=[prompt], n_results=1)
-    if not results["distances"][0]:
-        return False
-    return results["distances"][0][0] < (1 - threshold)
-```
+Successful attacks (score ≥ `VULN_THRESHOLD`, default 7.0) are persisted to a JSONL file and a SQLite metadata database via `StorageManager.log_attack()`. Every confirmed vulnerability is written — deduplication is not applied at the storage layer.
 
 ---
 
@@ -278,10 +268,8 @@ def is_duplicate(prompt: str, store: ChromaCollection, threshold=0.92) -> bool:
 
 | Library | Purpose |
 |---|---|
-| `chromadb` | Vector store for semantic deduplication of logged attacks |
-| `sentence-transformers` | `all-MiniLM-L6-v2` for embedding prompts |
 | `jsonlines` | Streaming JSONL write for vulnerability log |
-| `sqlite3` (stdlib) | Iteration metadata, timing, strategy performance stats |
+| `aiosqlite` | Async SQLite — iteration metadata, timing, strategy performance stats |
 
 ### 5.4 Evaluation and Reporting
 
@@ -307,7 +295,7 @@ def is_duplicate(prompt: str, store: ChromaCollection, threshold=0.92) -> bool:
 | Tool | Purpose |
 |---|---|
 | `ollama` | Local LLM serving for target models (`tinyllama:1b`, `gemma2:2b`) |
-| `docker-compose` | ChromaDB + Ollama containerization |
+| `docker-compose` | Ollama containerization |
 | `python-dotenv` | API key management |
 | `loguru` | Structured logging with rotation |
 
@@ -348,9 +336,8 @@ async def test_judge_calibration(response, expected_min, expected_max):
 - Use `hypothesis` to fuzz the mutation engine with arbitrary prompt strings and assert no crashes
 
 **Vulnerability logger:**
-- Assert that duplicate prompts (cosine similarity > 0.92) are not re-logged
 - Assert that the JSONL log is valid JSON on every line after 100 mock writes
-- Assert that the ChromaDB collection grows by exactly 1 for a novel attack and 0 for a duplicate
+- Assert that `StorageManager.log_attack` writes to both JSONL and SQLite
 
 ### 6.2 Integration Tests — The Mock Target Pattern
 
@@ -374,7 +361,7 @@ class MockTarget:
 | `test_full_loop_finds_vuln` | With a mock target that always yields to DAN prompts, the agent logs ≥ 1 vulnerability within 10 iterations |
 | `test_loop_stops_at_max_iter` | When mock target always refuses, loop stops at `max_iterations` |
 | `test_mutation_diversifies` | After 5 failed attempts, the agent has tried ≥ 3 distinct mutation tactics |
-| `test_no_duplicate_logging` | The same successful prompt fired twice logs exactly once |
+| `test_storage_writes_jsonl_and_sqlite` | Confirmed vulnerability is written to both JSONL and SQLite |
 | `test_state_persists_across_checkpoints` | Interrupt and resume the LangGraph run; confirm state is restored exactly |
 
 ### 6.3 Judge Quality Evaluation with RAGAS
@@ -446,7 +433,6 @@ Use LangGraph's built-in tracing + LangSmith (or a local Jaeger trace) to inspec
 | Mean iterations to first vulnerability | ≤ 15 |
 | Judge latency (p95) | ≤ 4 seconds |
 | Mutation engine diversity score | ≥ 0.6 (avg pairwise edit distance of mutations) |
-| Duplicate suppression rate | ≥ 30% (confirms deduplication is working) |
 | Attack loop throughput | ≥ 20 iterations/minute |
 
 ---
@@ -524,9 +510,8 @@ loop:
     - FinServSpecific
 
 storage:
-  vuln_log_path: "outputs/{target_tag}_vulns.jsonl"
-  chroma_persist_path: "outputs/chroma_{target_tag}"
-  dedup_threshold: 0.92
+  jsonl_path: "reports/{target_tag}_vulnerabilities.jsonl"
+  sqlite_path: "reports/metadata.db"
 ```
 
 ---
@@ -537,7 +522,7 @@ storage:
 # Install dependencies
 pip install -r requirements.txt
 
-# Start ChromaDB + Ollama (CPU-only, no GPU required)
+# Start Ollama (CPU-only, no GPU required)
 docker-compose up -d
 
 # Pull target models (attacker runs on Groq — no local pull needed)

@@ -33,7 +33,7 @@ RedTeamState schema (state.py)
         |
     graph.py (wires all nodes + routing logic)
         |
-    storage layer (chromadb, sqlite, jsonlines)
+    storage layer (sqlite, jsonlines)
         |
     vuln_logger.py (depends on storage layer)
         |
@@ -66,8 +66,6 @@ dependencies = [
     "langchain-core>=0.2.0",
     "langchain-openai>=0.1.0",
     "langchain-anthropic>=0.1.0",
-    "chromadb>=0.5.0",
-    "sentence-transformers>=3.0.0",
     "jsonlines>=4.0.0",
     "rich>=13.0.0",
     "jinja2>=3.1.0",
@@ -157,9 +155,6 @@ loop:
 storage:
   jsonl_path: "reports/{target_tag}_vulnerabilities.jsonl"
   sqlite_path: "reports/metadata.db"
-  chromadb_path: "reports/chroma_{target_tag}"
-  dedup_threshold: 0.92
-  embedding_model: "all-MiniLM-L6-v2"
 
 reporting:
   html_template: "reports/templates/report.html.j2"
@@ -172,7 +167,7 @@ Plain-text file that must exist and contain a specific acknowledgment string. Th
 
 **0.4 — docker-compose.yml**
 
-Define two services: `ollama` (CPU-only, serves `tinyllama:1b` and `gemma2:2b` as target models) and `chromadb` (persistent volume). The `redteamagentloop` agent depends on both. No GPU passthrough required — Ollama is only used for small target models; the attacker runs on Groq remotely. Include health checks for both services before the agent starts.
+Define one service: `ollama` (CPU-only, serves `tinyllama:1b` and `gemma2:2b` as target models). The `redteamagentloop` agent depends on it. No GPU passthrough required — Ollama is only used for small target models; the attacker runs on Groq remotely. Include a health check for the service before the agent starts.
 
 **0.5 — uv.lock**
 
@@ -231,7 +226,7 @@ ANTHROPIC_API_KEY=sk-ant-...
 | `pyproject.toml` | uv-managed deps, entry point, pytest config |
 | `config.yaml` | Two targets (tinyllama:1b, gemma2:2b), Groq attacker, Claude judge |
 | `authorization.txt` | Ethical guardrail acknowledgment |
-| `docker-compose.yml` | CPU-only Ollama + ChromaDB with health checks |
+| `docker-compose.yml` | CPU-only Ollama with health check |
 | `.gitignore` | Excludes `.venv/`, outputs, secrets |
 | `.env.example` | API key contract for all subsequent phases |
 | `uv.lock` | 152 packages pinned for reproducible installs |
@@ -433,7 +428,7 @@ The `generate_prompt` method selects one of these sub-vectors based on `state.ta
 
 ## Phase 3: Storage Layer
 
-**Milestone:** JSONL writer, SQLite metadata store, and ChromaDB deduplication are all operational before any node tries to write a vulnerability.
+**Milestone:** JSONL writer and SQLite metadata store are both operational before any node tries to write a vulnerability.
 
 **Depends on:** Phase 1 (writes `AttackRecord` shaped data)
 
@@ -454,25 +449,15 @@ The `generate_prompt` method selects one of these sub-vectors based on `state.ta
 - `get_session_stats(session_id: str) -> SessionStats`: Returns counts of attempts, successes, strategies used.
 - `get_strategy_performance() -> dict[str, float]`: Average score per strategy across all sessions.
 
-**3.3 — redteamagentloop/storage/chroma_store.py**
+**3.3 — redteamagentloop/storage/manager.py**
 
-`ChromaStore` class:
-- Uses `sentence-transformers` model from config to embed prompts.
-- `is_duplicate(prompt: str) -> bool`: Cosine similarity query against existing collection. Returns `True` if any stored prompt has similarity >= `dedup_threshold`.
-- `add(prompt: str, record_id: str, metadata: dict) -> None`: Adds prompt embedding to collection only after dedup check passes.
-- `get_similar(prompt: str, top_k: int = 5) -> list[SimilarResult]`: Returns nearest neighbors with scores.
-- Collection name: `"redteam_prompts"` (persistent across sessions).
-
-**3.4 — redteamagentloop/storage/manager.py**
-
-`StorageManager` class that composes all three stores and exposes a single `log_attack(record: AttackRecord) -> bool` method:
-- Runs ChromaDB dedup check first.
-- If duplicate: returns `False`, does not write.
-- If new: writes to JSONL, writes to SQLite, adds to ChromaDB, returns `True`.
+`StorageManager` class that composes `JsonlStore` and `SqliteStore` and exposes a single `log_attack(record: AttackRecord) -> bool` method:
+- Writes to JSONL and SQLite.
+- Always returns `True` (every call persists the record).
 
 ### Testing Checkpoint
 
-**Status: COMPLETE** — all checks passed on 2026-03-27. `uv run pytest tests/unit/test_storage.py -v` → **19/19 passed**.
+**Status: COMPLETE** — all checks passed on 2026-03-27. `uv run pytest tests/unit/test_storage.py -v` → **9/9 passed**.
 
 | Check | Test | Result |
 |---|---|---|
@@ -485,15 +470,7 @@ The `generate_prompt` method selects one of these sub-vectors based on `state.ta
 | Session stats returns zeros for unknown session | `test_sqlite_session_stats_empty_session` | PASS |
 | `get_strategy_performance` returns correct averages | `test_sqlite_strategy_performance` | PASS |
 | Multiple sessions are counted independently | `test_sqlite_multiple_sessions_are_independent` | PASS |
-| Novel prompt is not flagged as duplicate | `test_chroma_novel_prompt_is_not_duplicate` | PASS |
-| Identical prompt is flagged as duplicate | `test_chroma_identical_prompt_is_duplicate` | PASS |
-| Dissimilar prompt is not flagged as duplicate | `test_chroma_dissimilar_prompt_is_not_duplicate` | PASS |
-| `get_similar` returns results with valid similarity scores | `test_chroma_get_similar_returns_results` | PASS |
-| `get_similar` returns empty list for empty store | `test_chroma_get_similar_empty_store` | PASS |
-| `StorageManager.log_attack` writes and returns `True` for new attack | `test_storage_manager_logs_new_attack` | PASS |
-| Second identical prompt returns `False`, not written | `test_storage_manager_deduplicates_identical_prompt` | PASS |
-| Two distinct prompts both written (ChromaDB grows by 2) | `test_storage_manager_chroma_grows_by_one_for_novel_attack` | PASS |
-| Duplicate never written to JSONL (3 calls → 1 record) | `test_storage_manager_duplicate_does_not_write_to_jsonl` | PASS |
+| `StorageManager.log_attack` writes and returns `True` | `test_storage_manager_logs_new_attack` | PASS |
 | Session stats readable via `StorageManager` | `test_storage_manager_session_stats_via_sqlite` | PASS |
 
 **Bugs found and fixed during implementation:**
@@ -501,7 +478,6 @@ The `generate_prompt` method selects one of these sub-vectors based on `state.ta
 | Bug | Fix |
 |---|---|
 | `aiosqlite` connection used with both `await` and `async with` — "threads can only be started once" | Removed `_connect()` helper; each method opens its own `async with aiosqlite.connect(...)` |
-| ChromaDB v1.5 rejects empty metadata dicts `{}` | `chroma_store.add()` converts empty dict to `None` before passing to ChromaDB |
 
 **Files delivered:**
 
@@ -510,9 +486,8 @@ The `generate_prompt` method selects one of these sub-vectors based on `state.ta
 | `redteamagentloop/storage/__init__.py` | Storage subpackage root |
 | `redteamagentloop/storage/jsonl_store.py` | `JsonlStore` — async-safe append-only JSONL log |
 | `redteamagentloop/storage/sqlite_store.py` | `SqliteStore` — iteration metadata, session stats, strategy performance |
-| `redteamagentloop/storage/chroma_store.py` | `ChromaStore` — semantic deduplication via sentence-transformers + ChromaDB |
-| `redteamagentloop/storage/manager.py` | `StorageManager` — composes all three; single `log_attack()` entry point |
-| `tests/unit/test_storage.py` | 19 unit tests covering all Phase 3 checkpoints |
+| `redteamagentloop/storage/manager.py` | `StorageManager` — composes JSONL + SQLite; single `log_attack()` entry point |
+| `tests/unit/test_storage.py` | Unit tests covering all Phase 3 checkpoints |
 
 ---
 
@@ -545,8 +520,7 @@ Responsibilities:
 3. Select the active strategy: if `state.current_strategy` is empty or in `failed_strategies`, rotate to the next strategy using a round-robin over the registry that excludes failed ones.
 4. Instantiate the strategy from the registry.
 5. Call `strategy.generate_prompt(state, attacker_llm)` with a retry (max 3 attempts on LLM error).
-6. Run ChromaDB dedup check. If duplicate, try re-generating with a slight temperature bump (max 2 extra attempts).
-7. Return `{"current_prompt": prompt, "current_strategy": strategy.name, "iteration_count": state.iteration_count + 1}`.
+6. Return `{"current_prompt": prompt, "current_strategy": strategy.name, "iteration_count": state.iteration_count + 1}`.
 
 Attacker LLM initialization: `ChatOpenAI(model=config_attacker.model, base_url=config_attacker.base_url, api_key=os.environ["GROQ_API_KEY"], temperature=config_attacker.temperature)`. Groq exposes an OpenAI-compatible endpoint so `ChatOpenAI` is used directly — no separate Groq client needed.
 
@@ -592,9 +566,8 @@ Responsibilities:
 1. Take `state.current_prompt` as the seed prompt.
 2. Select a subset of the 8 mutation tactics based on what has not been tried recently (tracked in `state.mutation_history`).
 3. For each selected tactic, call the attacker LLM with a tactic-specific system prompt to generate a mutated variant.
-4. Run each variant through ChromaDB dedup; discard duplicates.
-5. Store accepted variants in `state.current_mutations` and enqueue them into `state.mutation_queue`.
-6. Return `{"mutation_queue": updated_queue, "current_mutations": new_mutations}`.
+4. Store generated variants in `state.current_mutations` and enqueue them into `state.mutation_queue`.
+5. Return `{"mutation_queue": updated_queue, "current_mutations": new_mutations}`.
 
 The 8 mutation tactics and their prompting approach:
 
@@ -1422,7 +1395,7 @@ Vite dev server proxies `/api` to `http://localhost:8000` to avoid CORS in devel
 
 ### 10.9 — docker-compose.yml additions
 
-Add a `console` service alongside the existing `ollama` and `chromadb` services:
+Add a `console` service alongside the existing `ollama` service:
 
 ```yaml
 console:
@@ -1434,7 +1407,6 @@ console:
     - "5173:5173"   # Vite frontend (dev mode)
   depends_on:
     - ollama
-    - chromadb
   environment:
     - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
     - GROQ_API_KEY=${GROQ_API_KEY}
@@ -1483,7 +1455,7 @@ console:
 | `console/frontend/src/main.tsx` | React entry point |
 | `console/frontend/src/index.css` | Tailwind base + custom scrollbar |
 | `console/Dockerfile` | Multi-stage: Node (Vite build) → Python (serves frontend + API) |
-| `docker-compose.yml` | Added `console` service on port 8000 with health check |
+| `docker-compose.yml` | Added `console` service on port 8000 with health check (depends on `ollama` only) |
 | `pyproject.toml` | Added `python-dotenv` to core deps |
 | `tests/unit/test_console.py` | 22 tests (EventMapper × 14, SessionManager × 4, API × 4) |
 
@@ -1518,7 +1490,7 @@ docker compose up --build console
 | 0 | Scaffolding | — | Installable package, config, auth guard |
 | 1 | State Schema | 0 | `RedTeamState`, `AttackRecord`, config models |
 | 2 | Strategies | 1 | 10 attack strategies, registry |
-| 3 | Storage | 1 | JSONL, SQLite, ChromaDB, dedup |
+| 3 | Storage | 1 | JSONL, SQLite |
 | 4 | Nodes | 1, 2, 3 | 6 async node functions |
 | 5 | Graph | 4 | Compiled graph, CLI entry point |
 | 6 | Evaluation | 4 | RAGAS eval, canary validation |
@@ -1554,13 +1526,11 @@ Phase 10 (Live Console) backend can begin as soon as Phase 5 is complete; the Re
 |---|---|---|---|
 | Groq free tier rate limits throttle attacker | Medium | Medium | Groq free tier allows ~30 RPM; add rate limiter configured to 25 RPM; upgrade to paid tier if throughput is insufficient |
 | Ollama target models (tinyllama/gemma2) too slow on CPU | Medium | Medium | Both models are <2B params; CPU inference is acceptable; add `num_ctx` cap in Ollama config to limit context length if latency is high |
-| ChromaDB embedding model download on first run delays CI | Medium | Medium | Pre-download model in Dockerfile; cache in CI |
 | RAGAS evaluation requires live Anthropic API | High | Medium | Pre-record judge responses for the 100-item eval dataset; gate live eval behind a flag |
 | LangGraph API changes between 0.2.x releases | Low | High | Pin exact version; wrap graph construction in a factory function for easy swap |
 | Judge prompt produces non-JSON output | Medium | High | Use structured output (`.with_structured_output(JudgeOutput)`) rather than manual parsing |
 | Attacker LLM generates blocked content | Medium | Medium | Guardrail in Phase 9 handles this; implement stub guardrail in Phase 4 to unblock development |
 | Strategy rotation causes infinite loop | Low | High | `failed_strategies` set grows; when all strategies exhausted, route to END |
-| ChromaDB dedup too aggressive (blocks novel prompts) | Low | Medium | Make threshold configurable; default 0.92 is intentionally conservative |
 | SSE connection drops mid-session in browser | Medium | Medium | Implement exponential-backoff reconnect in `useAttackStream`; session state persisted server-side in `SessionManager` |
 | `astream_events` API changes across LangGraph versions | Medium | Medium | Wrap all event consumption in `event_mapper.py`; isolate the LangGraph API surface to one file |
 | React list DOM bloat at 100+ iterations | Low | Low | Use `react-window` virtualized list from the start; cap visible history at 200 items |
@@ -1635,11 +1605,9 @@ If no GPU is available, Ollama will fall back to CPU — expect 10–30× slower
 | Component | Minimum | Recommended |
 |---|---|---|
 | Python agent process | 2 GB | 4 GB |
-| sentence-transformers (`all-MiniLM-L6-v2`) | 500 MB | 1 GB |
-| ChromaDB (in-process) | 500 MB | 1 GB |
 | Ollama daemon | 1 GB | 2 GB |
 | React dev server + Vite | 512 MB | 1 GB |
-| **Total** | **~5 GB** | **~9 GB** |
+| **Total** | **~3.5 GB** | **~7 GB** |
 
 Minimum host RAM: **16 GB**. Recommended: **32 GB**, especially when running the 70B model on CPU or a GPU with unified memory.
 
@@ -1649,14 +1617,13 @@ Minimum host RAM: **16 GB**. Recommended: **32 GB**, especially when running the
 |---|---|
 | Llama 3.1 70B (Q4_K_M via Ollama) | ~40 GB |
 | Llama 3.1 8B (Q4_K_M via Ollama) | ~5 GB |
-| `all-MiniLM-L6-v2` embedding model | ~90 MB |
-| ChromaDB persistent store (per session) | ~50 MB |
 | JSONL vulnerability log (per session) | ~1–5 MB |
-| Docker images (ChromaDB + Ollama) | ~8 GB |
+| SQLite metadata DB (per session) | ~1 MB |
+| Docker images (Ollama) | ~7 GB |
 | Python virtualenv (uv) | ~2 GB |
 | Node modules (frontend) | ~500 MB |
-| **Total (8B model)** | **~16 GB free** |
-| **Total (70B model)** | **~52 GB free** |
+| **Total (8B model)** | **~15 GB free** |
+| **Total (70B model)** | **~50 GB free** |
 
 ---
 
@@ -1698,7 +1665,6 @@ OPENAI_API_KEY=sk-...
 
 # Optional overrides (defaults shown)
 OLLAMA_BASE_URL=http://localhost:11434
-CHROMA_PERSIST_PATH=./reports/chromadb
 VULN_LOG_PATH=./reports/vulnerabilities.jsonl
 LOG_LEVEL=INFO
 ```
@@ -1713,7 +1679,7 @@ LOG_LEVEL=INFO
 | `redteamagentloop/agent/graph.py` | Graph wiring and compilation; the integration point for all nodes, routing logic, and the CLI entry path |
 | `redteamagentloop/agent/nodes/attacker.py` | Most complex node; drives strategy selection, dedup, and the core iteration loop; on the critical path |
 | `redteamagentloop/agent/nodes/judge.py` | Scoring correctness directly determines whether vulnerabilities are detected or missed; also the dependency for Phase 6 evaluation |
-| `redteamagentloop/storage/manager.py` | Composes all three storage backends; the single write path used by vuln_logger and the dedup gate used by attacker and mutation_engine |
+| `redteamagentloop/storage/manager.py` | Composes JSONL and SQLite stores; the single write path used by vuln_logger |
 | `redteamagentloop/console/backend/event_mapper.py` | Single file that owns the LangGraph → AttackEvent translation; all SSE output depends on it being correct |
 | `redteamagentloop/console/frontend/src/hooks/useAttackStream.ts` | Owns the SSE connection lifecycle; reconnect logic and event dispatch flow through here |
 | `redteamagentloop/console/frontend/src/store/consoleReducer.ts` | All frontend state transitions; the reducer shape determines what every UI component can render |

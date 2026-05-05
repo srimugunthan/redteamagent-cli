@@ -39,9 +39,6 @@ loop:
 storage:
   jsonl_path: "reports/{target_tag}_vulnerabilities.jsonl"
   sqlite_path: "reports/metadata.db"
-  chromadb_path: "reports/chroma_{target_tag}"
-  dedup_threshold: 0.92
-  embedding_model: "all-MiniLM-L6-v2"
 
 reporting:
   html_template: "reports/templates/report.html.j2"

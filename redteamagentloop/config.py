@@ -55,15 +55,9 @@ class LoopConfig(BaseModel):
 class StorageConfig(BaseModel):
     jsonl_path: str = "reports/{target_tag}_vulnerabilities.jsonl"
     sqlite_path: str = "reports/metadata.db"
-    chromadb_path: str = "reports/chroma_{target_tag}"
-    dedup_threshold: float = 0.92
-    embedding_model: str = "all-MiniLM-L6-v2"
 
     def jsonl_path_for(self, target_tag: str) -> str:
         return self.jsonl_path.format(target_tag=target_tag)
-
-    def chromadb_path_for(self, target_tag: str) -> str:
-        return self.chromadb_path.format(target_tag=target_tag)
 
 
 class ReportingConfig(BaseModel):

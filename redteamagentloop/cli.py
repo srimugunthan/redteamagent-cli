@@ -38,9 +38,6 @@ async def _run_target(
     storage = StorageManager(
         jsonl_path=storage_cfg.jsonl_path.replace("{target_tag}", target.output_tag),
         sqlite_path=storage_cfg.sqlite_path,
-        chromadb_path=storage_cfg.chromadb_path.replace("{target_tag}", target.output_tag),
-        embedding_model=storage_cfg.embedding_model,
-        dedup_threshold=storage_cfg.dedup_threshold,
     )
 
     dashboard = TerminalDashboard(

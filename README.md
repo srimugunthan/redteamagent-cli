@@ -75,7 +75,7 @@ ollama pull gemma2:2b
 **Option B — Docker Compose:**
 
 ```bash
-docker-compose up -d ollama chromadb
+docker-compose up -d ollama
 docker exec redteamagentloop-ollama ollama pull tinyllama
 docker exec redteamagentloop-ollama ollama pull gemma2:2b
 ```
@@ -307,7 +307,6 @@ Each run produces:
 - **HTML report** — saved to `reports/output/<session>_<timestamp>.html`
 - **JSONL** — `reports/<target_tag>_vulnerabilities.jsonl`
 - **SQLite** — `reports/metadata.db`
-- **ChromaDB** — `reports/chroma_<target_tag>/` (semantic dedup)
 - **Session log** — `reports/logs/<session_id>.log` (JSON structured)
 
 ---

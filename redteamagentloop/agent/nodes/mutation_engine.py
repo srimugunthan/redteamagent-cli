@@ -70,7 +70,6 @@ async def mutation_engine_node(state: "RedTeamState", config: RunnableConfig) ->
 
     cfg = config.get("configurable", {})
     app_config = cfg.get("app_config")
-    storage_manager = cfg.get("storage_manager")
 
     attacker_llm = cfg.get("attacker_llm")
     if attacker_llm is None:
@@ -89,9 +88,6 @@ async def mutation_engine_node(state: "RedTeamState", config: RunnableConfig) ->
             ])
             mutated = response.content.strip()
             if not mutated:
-                continue
-            # Skip near-duplicates if storage_manager provided.
-            if storage_manager is not None and storage_manager._chroma.is_duplicate(mutated):
                 continue
             new_mutations.append(mutated)
         except Exception:

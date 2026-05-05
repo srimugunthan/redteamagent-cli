@@ -1,1 +1,1 @@
-"""Storage layer — JSONL, SQLite, ChromaDB, and StorageManager."""
+"""Storage layer — JSONL, SQLite, and StorageManager."""
