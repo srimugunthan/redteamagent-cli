@@ -19,17 +19,22 @@ async def _run_target(
     app_config,
     target,
     output_dir: str,
+    use_mock: bool = False,
 ) -> None:
     """Run the graph against a single target, persist results, and save report."""
     from rich.panel import Panel
-    from redteamagentloop.llm_factory import build_attacker_llm, build_judge_llm, build_target_llm
+    from redteamagentloop.llm_factory import (
+        build_attacker_llm, build_judge_llm, build_target_llm,
+        build_mock_attacker, build_mock_judge, build_mock_target,
+    )
     from redteamagentloop.ratelimit import RateLimiter
     from redteamagentloop.storage.manager import StorageManager
     from redteamagentloop.report_generator import ReportGenerator
     from redteamagentloop.terminal_dashboard import TerminalDashboard
 
+    mode_label = " [yellow](mock)[/yellow]" if use_mock else ""
     console.print(Panel(
-        f"[bold cyan]Target:[/bold cyan] {target.model} ({target.output_tag})\n"
+        f"[bold cyan]Target:[/bold cyan] {target.model} ({target.output_tag}){mode_label}\n"
         f"[bold cyan]Objective:[/bold cyan] {initial_state['target_objective']}",
         title="RedTeamAgentLoop — starting run",
     ))
@@ -47,14 +52,19 @@ async def _run_target(
     )
 
     # Build LLMs once and inject — nodes use these rather than constructing inline.
-    attacker_llm = build_attacker_llm(app_config)
-    target_llm = build_target_llm(target)
-    judge_llm = build_judge_llm(app_config)
+    if use_mock:
+        attacker_llm = build_mock_attacker()
+        target_llm = build_mock_target()
+        judge_llm = build_mock_judge()
+    else:
+        attacker_llm = build_attacker_llm(app_config)
+        target_llm = build_target_llm(target)
+        judge_llm = build_judge_llm(app_config)
 
-    # Build per-run rate limiters (0 rpm = disabled).
-    attacker_rate_limiter = RateLimiter(app_config.attacker.rpm)
-    target_rate_limiter = RateLimiter(target.rpm)
-    judge_rate_limiter = RateLimiter(app_config.judge.rpm)
+    # Build per-run rate limiters (0 rpm = disabled; always disabled in mock mode).
+    attacker_rate_limiter = RateLimiter(0 if use_mock else app_config.attacker.rpm)
+    target_rate_limiter = RateLimiter(0 if use_mock else target.rpm)
+    judge_rate_limiter = RateLimiter(0 if use_mock else app_config.judge.rpm)
 
     run_config = {"configurable": {
         "app_config": app_config,
@@ -115,23 +125,36 @@ def main() -> None:
     parser.add_argument("--target", default=None, help="output_tag of the target to test (default: all targets)")
     parser.add_argument("--output-dir", default="reports/output", help="Directory for HTML reports")
     parser.add_argument("--auth", default="authorization.txt", help="Path to authorization.txt")
+    parser.add_argument("--mock", action="store_true", help="Use mock LLMs for all roles — no API keys required")
     args = parser.parse_args()
 
     check_authorization(args.auth)
     app_config = load_config(args.config)
 
-    # Fail fast if required API keys are missing — before any LLM node runs.
-    check_api_keys(app_config)
+    # Fail fast if required API keys are missing — skipped in mock mode.
+    if not args.mock:
+        check_api_keys(app_config)
 
     from redteamagentloop.agent.graph import build_graph, build_initial_state
 
-    targets = [
-        t for t in app_config.targets
-        if args.target is None or args.target == t.output_tag
-    ]
-    if not targets:
-        console.print(f"[red]No targets matched '{args.target}'.[/red]")
-        return
+    if args.mock:
+        from redteamagentloop.config import TargetConfig
+        targets = [TargetConfig(
+            model="mock-target",
+            base_url="http://mock/v1",
+            api_key="mock",
+            system_prompt="You are a helpful banking assistant.",
+            timeout_seconds=10,
+            output_tag="mock",
+        )]
+    else:
+        targets = [
+            t for t in app_config.targets
+            if args.target is None or args.target == t.output_tag
+        ]
+        if not targets:
+            console.print(f"[red]No targets matched '{args.target}'.[/red]")
+            return
 
     graph = build_graph(app_config)
 
@@ -142,7 +165,7 @@ def main() -> None:
                 target_objective=args.objective,
                 target_system_prompt=args.system_prompt or target.system_prompt,
             )
-            await _run_target(graph, initial_state, app_config, target, args.output_dir)
+            await _run_target(graph, initial_state, app_config, target, args.output_dir, use_mock=args.mock)
 
     asyncio.run(run_all())
 
