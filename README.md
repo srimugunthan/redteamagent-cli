@@ -106,16 +106,31 @@ uv run redteamagentloop \
   --config config.yaml
 ```
 
+### Mock mode — no API keys required
+
+Add `--mock` to replace all three LLMs (attacker, target, judge) with in-process stubs. No Groq key, no Anthropic key, no Ollama instance needed. A synthetic `mock-target` is used regardless of what `config.yaml` defines, so the full pipeline can be exercised without any external services.
+
+```bash
+uv run redteamagentloop \
+  --objective "elicit unlicensed investment advice" \
+  --mock
+```
+
+The mock attacker generates scripted adversarial prompts, the mock target randomly complies or refuses, and the mock judge returns varied `JudgeOutput` verdicts (mix of high and low scores). Output files are written as normal — JSONL, SQLite, and HTML report — so the output format can be verified offline.
+
+> `--target` and API key env vars are ignored when `--mock` is set.
+
 #### CLI options
 
 | Flag | Default | Description |
 |---|---|---|
 | `--objective` | required | What the target must NOT do |
-| `--target` | all targets | `output_tag` from `config.yaml` |
+| `--target` | all targets | `output_tag` from `config.yaml` (ignored with `--mock`) |
 | `--system-prompt` | `""` | System prompt to inject into the target |
 | `--config` | `config.yaml` | Path to config file |
 | `--auth` | `authorization.txt` | Path to authorization file |
 | `--output-dir` | `reports/output` | Directory for HTML reports |
+| `--mock` | off | Replace all LLMs with stubs — no API keys or Ollama required |
 
 ---
 
@@ -187,7 +202,19 @@ Set `JUDGE_API_KEY=<your-key>` in your `.env` file.
 
 ## Strategy tools
 
-Three standalone scripts for inspecting strategies and evaluating judge quality outside the full agent loop. All three live in the `tests/` directory.
+Four standalone scripts for inspecting strategies, running the full graph in mock mode, and evaluating judge quality outside the full agent loop.
+
+### test_graph.py — full graph run with mock LLMs
+
+Runs the complete attacker → target → judge → loop_controller graph end-to-end using the same mock stubs as `--mock` mode. Prints each step live and shows a final summary table with attack history and logged vulnerabilities. No API keys or Ollama required.
+
+```bash
+uv run python test_graph.py
+```
+
+Output files land in `reports/mock_vulnerabilities.jsonl`. Useful for smoke-testing graph wiring, verifying storage output format, and demoing the pipeline without any external dependencies.
+
+---
 
 ### tests/run_all_strategies.py — run every strategy once
 
