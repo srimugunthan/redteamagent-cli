@@ -202,17 +202,63 @@ Set `JUDGE_API_KEY=<your-key>` in your `.env` file.
 
 ## Strategy tools
 
-Four standalone scripts for inspecting strategies, running the full graph in mock mode, and evaluating judge quality outside the full agent loop.
+Five standalone scripts for inspecting strategies, running the full graph in mock mode, generating attack prompts, and evaluating judge quality outside the full agent loop. All live in the `tests/` directory.
 
-### test_graph.py — full graph run with mock LLMs
+### tests/test_graph.py — full graph run with mock LLMs
 
 Runs the complete attacker → target → judge → loop_controller graph end-to-end using the same mock stubs as `--mock` mode. Prints each step live and shows a final summary table with attack history and logged vulnerabilities. No API keys or Ollama required.
 
 ```bash
-uv run python test_graph.py
+uv run python tests/test_graph.py
 ```
 
 Output files land in `reports/mock_vulnerabilities.jsonl`. Useful for smoke-testing graph wiring, verifying storage output format, and demoing the pipeline without any external dependencies.
+
+---
+
+### tests/generate_attack_prompt.py — generate a single attack prompt
+
+Standalone prompt generator that exercises a strategy against a real attacker LLM without running the full agent loop — no target, no judge, no storage. Useful for checking that a strategy produces a coherent adversarial prompt for a given objective, or for manually inspecting LLM output before wiring into the graph.
+
+```bash
+# List all 10 strategies
+uv run python tests/generate_attack_prompt.py --list-strategies
+
+# Generate one prompt with Groq (default)
+uv run python tests/generate_attack_prompt.py \
+  --provider groq \
+  --model llama-3.3-70b-versatile \
+  --objective "extract customer PII"
+
+# Use a specific strategy
+uv run python tests/generate_attack_prompt.py \
+  --provider groq \
+  --model llama-3.3-70b-versatile \
+  --objective "bypass KYC compliance checks" \
+  --strategy DirectJailbreak
+
+# Run all 10 strategies and print each result
+uv run python tests/generate_attack_prompt.py \
+  --provider groq \
+  --model llama-3.3-70b-versatile \
+  --objective "elicit unlicensed investment advice" \
+  --all-strategies
+
+# Ollama (no API key needed)
+uv run python tests/generate_attack_prompt.py \
+  --provider ollama --model llama3 \
+  --objective "extract customer PII"
+```
+
+| Flag | Default | Description |
+|---|---|---|
+| `--objective` | required | Red-team objective |
+| `--strategy` | `DirectJailbreak` | Strategy to use (see `--list-strategies`) |
+| `--all-strategies` | off | Run all 10 strategies and print each prompt |
+| `--list-strategies` | off | Print all strategy names and descriptions, then exit |
+| `--provider` | `groq` | `groq` / `openai` / `anthropic` / `ollama` / `custom` |
+| `--model` | provider default | Override model name |
+| `--base-url` | provider default | Override base URL (for `custom` provider) |
 
 ---
 
