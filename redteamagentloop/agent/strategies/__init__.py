@@ -14,6 +14,7 @@ from redteamagentloop.agent.strategies.obfuscation import (
     ContextOverflow,
     ObfuscatedRequest,
 )
+from redteamagentloop.agent.strategies.static_file import StaticFileStrategy
 
 __all__ = [
     "STRATEGY_REGISTRY",
@@ -28,4 +29,5 @@ __all__ = [
     "ContextOverflow",
     "ObfuscatedRequest",
     "FinServSpecific",
+    "StaticFileStrategy",
 ]

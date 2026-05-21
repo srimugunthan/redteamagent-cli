@@ -18,6 +18,26 @@ if TYPE_CHECKING:
 _strategy_index: int = 0
 _strategy_lock = asyncio.Lock()
 
+# ---------------------------------------------------------------------------
+# Static prompt library — lazy-loaded once when prompt_file is configured.
+# ---------------------------------------------------------------------------
+
+def _try_static_prompt(app_config, strategy_name: str) -> str | None:
+    """Return the next static prompt for strategy_name, or None.
+
+    Lazy-loads the PromptLibrary from app_config.attacker.prompt_file on the
+    first call. Returns None when no file is configured or no prompts exist
+    for this strategy, allowing the caller to fall back to LLM generation.
+    """
+    prompt_file = getattr(getattr(app_config, "attacker", None), "prompt_file", None)
+    if not prompt_file:
+        return None
+    from redteamagentloop.agent.strategies.static_file import configure, get_library
+    lib = get_library()
+    if lib is None or lib.path != str(__import__("pathlib").Path(prompt_file).resolve()):
+        lib = configure(prompt_file)
+    return lib.next_for(strategy_name)
+
 _MAX_GUARDRAIL_BLOCKS = 3
 
 
@@ -67,6 +87,32 @@ async def attacker_node(state: "RedTeamState", config: RunnableConfig) -> dict:
         "attacker node started",
         extra={"node": "attacker", "iteration": state["iteration_count"], "session_id": state["session_id"]},
     )
+
+    # Static file fast-path: if a prompt_file is configured and has entries for
+    # this strategy, serve one directly without calling the attacker LLM.
+    static_prompt = _try_static_prompt(app_config, current)
+    if static_prompt:
+        guardrail = check_prompt(static_prompt)
+        if guardrail.allowed:
+            log.debug(
+                "attacker serving static prompt",
+                extra={"node": "attacker", "iteration": state["iteration_count"],
+                       "session_id": state["session_id"], "strategy": current},
+            )
+            result: dict = {
+                "current_prompt": static_prompt,
+                "current_strategy": current,
+                "iteration_count": state["iteration_count"] + 1,
+                "error": None,
+            }
+            if strategy_switched:
+                result["strategy_mutation_count"] = 0
+            return result
+        log.warning(
+            "Guardrail blocked static prompt — falling back to LLM",
+            extra={"node": "attacker", "iteration": state["iteration_count"],
+                   "session_id": state["session_id"], "blocked_category": guardrail.blocked_category},
+        )
 
     # Rate-limit before calling the attacker LLM.
     if rate_limiter is not None:

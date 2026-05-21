@@ -126,10 +126,20 @@ def main() -> None:
     parser.add_argument("--output-dir", default="reports/output", help="Directory for HTML reports")
     parser.add_argument("--auth", default="authorization.txt", help="Path to authorization.txt")
     parser.add_argument("--mock", action="store_true", help="Use mock LLMs for all roles — no API keys required")
+    parser.add_argument(
+        "--prompt-file", default=None, metavar="PATH",
+        help="JSONL file of static prompts (overrides attacker.prompt_file in config.yaml). "
+             "Each record must have 'strategy' and 'prompt' fields. "
+             "When set, prompts matching the active strategy are served without an LLM call; "
+             "strategies with no matching entries fall back to LLM generation.",
+    )
     args = parser.parse_args()
 
     check_authorization(args.auth)
     app_config = load_config(args.config)
+
+    if args.prompt_file:
+        app_config.attacker.prompt_file = args.prompt_file
 
     # Fail fast if required API keys are missing — skipped in mock mode.
     if not args.mock:

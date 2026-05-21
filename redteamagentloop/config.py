@@ -32,6 +32,7 @@ class AttackerConfig(BaseModel):
     temperature: float = 0.9
     max_tokens: int = 1024
     rpm: int = 0  # calls per minute; 0 = no limit
+    prompt_file: str | None = None  # JSONL file of static prompts; None = LLM-only
 
 
 class JudgeConfig(BaseModel):
