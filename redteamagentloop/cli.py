@@ -114,6 +114,93 @@ async def _run_target(
     console.print(f"[dim]Report saved → {report_path}[/dim]")
 
 
+async def _run_target_multiturn(
+    initial_state: dict,
+    app_config,
+    target,
+    output_dir: str,
+    use_mock: bool = False,
+) -> None:
+    """Run multi-turn orchestrator against a single target, persist results, save report."""
+    from redteamagentloop.agent.multi_turn import build_orchestrator_and_source, single_exchange
+    from redteamagentloop.llm_factory import (
+        build_attacker_llm, build_judge_llm, build_target_llm,
+        build_mock_attacker, build_mock_judge, build_mock_target,
+    )
+    from redteamagentloop.storage.manager import StorageManager
+    from redteamagentloop.report_generator import ReportGenerator
+
+    if use_mock:
+        attacker_llm = build_mock_attacker()
+        target_llm   = build_mock_target()
+        judge_llm    = build_mock_judge()
+    else:
+        attacker_llm = build_attacker_llm(app_config)
+        target_llm   = build_target_llm(target)
+        judge_llm    = build_judge_llm(app_config)
+
+    run_config = {"configurable": {
+        "app_config":            app_config,
+        "attacker_llm":          attacker_llm,
+        "target_llm":            target_llm,
+        "judge_llm":             judge_llm,
+        "attacker_rate_limiter": None,
+        "target_rate_limiter":   None,
+        "judge_rate_limiter":    None,
+    }}
+
+    mt_cfg = app_config.loop.multi_turn
+    orchestrator, prompt_source = build_orchestrator_and_source(
+        mt_cfg, app_config, attacker_llm
+    )
+
+    console.print(
+        f"[bold cyan]Multi-turn mode:[/bold cyan] {mt_cfg.mode}  "
+        f"[bold cyan]episodes:[/bold cyan] {mt_cfg.max_episodes}  "
+        f"[bold cyan]turns/episode:[/bold cyan] {mt_cfg.max_turns_per_episode}"
+    )
+
+    episode_results = await orchestrator.run_all_episodes(
+        exchange_fn=single_exchange,
+        base_state=initial_state,
+        run_config=run_config,
+        prompt_source=prompt_source,
+        max_episodes=mt_cfg.max_episodes,
+    )
+
+    all_records = [r for ep in episode_results for r in ep.attack_records]
+    successes   = [r for r in all_records if r.get("was_successful")]
+
+    storage_cfg = app_config.storage
+    storage = StorageManager(
+        jsonl_path=storage_cfg.jsonl_path.replace("{target_tag}", target.output_tag),
+        sqlite_path=storage_cfg.sqlite_path,
+    )
+    for rec in successes:
+        await storage.log_attack(rec)
+
+    total_turns = sum(ep.turns_taken for ep in episode_results)
+    best_overall = max((ep.best_score for ep in episode_results), default=0.0)
+    console.print(
+        f"[bold]Multi-turn complete:[/bold] {len(episode_results)} episodes, "
+        f"{total_turns} total turns, best score {best_overall:.1f}/10, "
+        f"{len(successes)} successful attacks."
+    )
+
+    generator = ReportGenerator()
+    report = generator.load_session_data(
+        session_id=initial_state["session_id"],
+        attack_history=all_records,
+        successful_attacks=successes,
+        target_model=target.model,
+        objective=initial_state["target_objective"],
+        vuln_threshold=app_config.loop.vuln_threshold,
+        total_iterations=total_turns,
+    )
+    report_path = generator.save(report, output_dir)
+    console.print(f"[dim]Report saved → {report_path}[/dim]")
+
+
 def main() -> None:
     # Load .env before parsing config so GROQ_API_KEY / ANTHROPIC_API_KEY are set.
     load_dotenv()
@@ -133,6 +220,32 @@ def main() -> None:
              "When set, prompts matching the active strategy are served without an LLM call; "
              "strategies with no matching entries fall back to LLM generation.",
     )
+    parser.add_argument(
+        "--multi-turn-mode",
+        choices=["reactive_chain", "crescendo", "mcts"],
+        default=None,
+        help="Enable multi-turn attack mode. Overrides loop.multi_turn.mode in config.yaml.",
+    )
+    parser.add_argument(
+        "--max-turns-per-episode", type=int, default=None,
+        help="Override loop.multi_turn.max_turns_per_episode.",
+    )
+    parser.add_argument(
+        "--episodes", type=int, default=None,
+        help="Override loop.multi_turn.max_episodes.",
+    )
+    parser.add_argument(
+        "--crescendo-script-file", default=None,
+        help="Override loop.multi_turn.crescendo_script_file. JSONL with 'turns' arrays.",
+    )
+    parser.add_argument(
+        "--mcts-simulations", type=int, default=None,
+        help="Override loop.multi_turn.mcts_simulations.",
+    )
+    parser.add_argument(
+        "--mcts-branching-factor", type=int, default=None,
+        help="Override loop.multi_turn.mcts_branching_factor.",
+    )
     args = parser.parse_args()
 
     check_authorization(args.auth)
@@ -140,6 +253,20 @@ def main() -> None:
 
     if args.prompt_file:
         app_config.attacker.prompt_file = args.prompt_file
+
+    # CLI args override YAML values (only when explicitly passed).
+    if args.multi_turn_mode is not None:
+        app_config.loop.multi_turn.mode = args.multi_turn_mode
+    if args.max_turns_per_episode is not None:
+        app_config.loop.multi_turn.max_turns_per_episode = args.max_turns_per_episode
+    if args.episodes is not None:
+        app_config.loop.multi_turn.max_episodes = args.episodes
+    if args.crescendo_script_file is not None:
+        app_config.loop.multi_turn.crescendo_script_file = args.crescendo_script_file
+    if args.mcts_simulations is not None:
+        app_config.loop.multi_turn.mcts_simulations = args.mcts_simulations
+    if args.mcts_branching_factor is not None:
+        app_config.loop.multi_turn.mcts_branching_factor = args.mcts_branching_factor
 
     # Fail fast if required API keys are missing — skipped in mock mode.
     if not args.mock:
@@ -175,7 +302,16 @@ def main() -> None:
                 target_objective=args.objective,
                 target_system_prompt=args.system_prompt or target.system_prompt,
             )
-            await _run_target(graph, initial_state, app_config, target, args.output_dir, use_mock=args.mock)
+            if app_config.loop.multi_turn.mode == "single_turn":
+                await _run_target(
+                    graph, initial_state, app_config, target,
+                    args.output_dir, use_mock=args.mock,
+                )
+            else:
+                await _run_target_multiturn(
+                    initial_state, app_config, target,
+                    args.output_dir, use_mock=args.mock,
+                )
 
     asyncio.run(run_all())
 

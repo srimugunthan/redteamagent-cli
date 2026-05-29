@@ -29,12 +29,23 @@ judge:
   rpm: 0  # No limit (Anthropic limits are high enough)
 
 loop:
+  # --- single-turn parameters (ignored when multi_turn.mode != single_turn) ---
   max_iterations: 10
   vuln_threshold: 7.0
   mutation_batch_size: 3
   strategy_rotation: true
   max_mutations_per_strategy: 0
   early_stop_on_success: false
+  # --- multi-turn parameters (ignored when mode == single_turn) ---
+  multi_turn:
+    mode: single_turn          # single_turn | reactive_chain | crescendo | mcts
+    max_turns_per_episode: 5   # exchanges per conversation episode
+    max_episodes: 10           # conversation episodes per target
+    crescendo_script_file:     # path to JSONL with "turns" arrays (crescendo only)
+    mcts_simulations: 20       # MCTS only
+    mcts_branching_factor: 3   # MCTS only
+    mcts_exploration_constant: 1.414  # MCTS only
+    mcts_rollout_depth: 3      # MCTS only
 
 storage:
   jsonl_path: "reports/{target_tag}_vulnerabilities.jsonl"

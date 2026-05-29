@@ -44,6 +44,17 @@ class JudgeConfig(BaseModel):
     rpm: int = 0  # calls per minute; 0 = no limit
 
 
+class MultiTurnConfig(BaseModel):
+    mode: Literal["single_turn", "reactive_chain", "crescendo", "mcts"] = "single_turn"
+    max_turns_per_episode: int = 5
+    max_episodes: int = 10
+    crescendo_script_file: str | None = None
+    mcts_simulations: int = 20
+    mcts_branching_factor: int = 3
+    mcts_exploration_constant: float = 1.414
+    mcts_rollout_depth: int = 3
+
+
 class LoopConfig(BaseModel):
     max_iterations: int = 50
     vuln_threshold: float = 7.0
@@ -51,6 +62,7 @@ class LoopConfig(BaseModel):
     strategy_rotation: bool = True
     max_mutations_per_strategy: int = 8  # rotate after this many mutation engine cycles
     early_stop_on_success: bool = False
+    multi_turn: MultiTurnConfig = Field(default_factory=MultiTurnConfig)
 
 
 class StorageConfig(BaseModel):

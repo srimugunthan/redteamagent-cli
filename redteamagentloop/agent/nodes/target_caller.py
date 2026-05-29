@@ -12,7 +12,7 @@ import asyncio
 from typing import TYPE_CHECKING
 
 import httpx
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from rich.console import Console
@@ -62,10 +62,20 @@ async def target_caller_node(state: "RedTeamState", config: RunnableConfig) -> d
         from redteamagentloop.llm_factory import build_target_llm
         target_llm = build_target_llm(app_config.targets[0])
 
-    messages = [
-        SystemMessage(content=state["target_system_prompt"]),
-        HumanMessage(content=state["current_prompt"]),
-    ]
+    conv_history = state.get("conversation_history", [])
+    if conv_history:
+        messages = [SystemMessage(content=state["target_system_prompt"])]
+        for turn in conv_history:
+            if turn["role"] == "user":
+                messages.append(HumanMessage(content=turn["content"]))
+            else:
+                messages.append(AIMessage(content=turn["content"]))
+        messages.append(HumanMessage(content=state["current_prompt"]))
+    else:
+        messages = [
+            SystemMessage(content=state["target_system_prompt"]),
+            HumanMessage(content=state["current_prompt"]),
+        ]
 
     log.debug(
         "target_caller node started",
