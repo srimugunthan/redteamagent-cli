@@ -74,9 +74,17 @@ async def single_exchange(
 ) -> dict:
     """Call target_caller then judge for one prompt. Used by all orchestrators."""
     from redteamagentloop.agent.nodes.target_caller import target_caller_node
-    from redteamagentloop.agent.nodes.judge import judge_node
+
+    cfg = run_config.get("configurable", {})
+    app_config = cfg.get("app_config")
+    target_type = getattr(getattr(app_config, "targets", [None])[0], "target_type", "llm")
+
+    if target_type == "rag":
+        from redteamagentloop.agent.nodes.rag_judge import rag_judge_node as judge_fn
+    else:
+        from redteamagentloop.agent.nodes.judge import judge_node as judge_fn
 
     state = {**base_state, "current_prompt": prompt, "conversation_history": conversation_history}
     state = {**state, **(await target_caller_node(state, run_config))}
-    state = {**state, **(await judge_node(state, run_config))}
+    state = {**state, **(await judge_fn(state, run_config))}
     return state

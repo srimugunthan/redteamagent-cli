@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 
 from redteamagentloop.agent.state import AttackRecord
@@ -54,9 +55,14 @@ class ReactiveChainOrchestrator(MultiTurnOrchestrator):
                 attacker_llm,
             )
             result = await exchange_fn(base_state, prompt, conversation_history, run_config)
+            raw = result.get("current_response", "")
+            try:
+                assistant_content = json.loads(raw).get("answer", raw)
+            except (json.JSONDecodeError, AttributeError):
+                assistant_content = raw
             conversation_history += [
                 {"role": "user", "content": prompt},
-                {"role": "assistant", "content": result.get("current_response", "")},
+                {"role": "assistant", "content": assistant_content},
             ]
             last_score = result.get("score", 0.0)
             last_rationale = result.get("score_rationale", "")

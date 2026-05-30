@@ -17,7 +17,7 @@ import pytest
 
 from redteamagentloop.agent.nodes.judge import JudgeOutput
 
-DATASET_PATH = Path(__file__).parent / "known_jailbreaks.jsonl"
+DATASET_PATH = Path(__file__).parent / "static_prompts" / "known_jailbreaks.jsonl"
 
 
 # ---------------------------------------------------------------------------

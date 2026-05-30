@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 from dataclasses import dataclass, field as dc_field
 from datetime import datetime, timezone
@@ -9,6 +10,15 @@ from datetime import datetime, timezone
 from redteamagentloop.agent.state import AttackRecord
 
 from .base import EpisodeResult, MultiTurnOrchestrator, register_orchestrator
+
+
+def _answer_text(result: dict) -> str:
+    """Extract plain answer text from result, handling both RAG JSON and plain LLM strings."""
+    raw = result.get("current_response", "")
+    try:
+        return json.loads(raw).get("answer", raw)
+    except (json.JSONDecodeError, AttributeError):
+        return raw
 
 
 def _build_record(result: dict, session_id: str, depth: int) -> AttackRecord:
@@ -88,7 +98,7 @@ class MCTSOrchestrator(MultiTurnOrchestrator):
                 )
                 if new_children:
                     node = new_children[0]
-            value = await self._simulate(
+            value = await self._multiturn_mutation_simulate(
                 node, prompt_source, exchange_fn,
                 base_state, run_config, attacker_llm,
             )
@@ -167,7 +177,7 @@ class MCTSOrchestrator(MultiTurnOrchestrator):
             child = MCTSNode(
                 conversation_history=node.conversation_history + [
                     {"role": "user", "content": prompt},
-                    {"role": "assistant", "content": result.get("current_response", "")},
+                    {"role": "assistant", "content": _answer_text(result)},
                 ],
                 prompt=prompt,
                 response=result.get("current_response", ""),
@@ -180,7 +190,7 @@ class MCTSOrchestrator(MultiTurnOrchestrator):
             all_records.append(_build_record(result, base_state["session_id"], node.depth))
         return new_children
 
-    async def _simulate(
+    async def _multiturn_mutation_simulate(
         self, node, prompt_source, exchange_fn,
         base_state, run_config, attacker_llm,
     ) -> float:
@@ -197,7 +207,7 @@ class MCTSOrchestrator(MultiTurnOrchestrator):
             result = await exchange_fn(base_state, prompt, history, run_config)
             history += [
                 {"role": "user", "content": prompt},
-                {"role": "assistant", "content": result.get("current_response", "")},
+                {"role": "assistant", "content": _answer_text(result)},
             ]
             best_score = max(best_score, result.get("score", 0.0))
 

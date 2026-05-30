@@ -1,0 +1,30 @@
+targets:
+  - target_type: rag
+    endpoint_url: http://localhost:8000/query
+    request_field: query
+    response_field: answer
+    chunks_field: chunks
+    chunk_text_field: text
+    output_tag: test-rag
+    timeout_seconds: 10
+    rpm: 0
+    extra_body:
+      include_trace: true
+      namespace_isolation: true
+      follow_injections: true
+      top_k: 3
+
+attacker:
+  provider: groq
+  model: llama-3.3-70b-versatile
+  base_url: https://api.groq.com/openai/v1
+  temperature: 0.9
+
+judge:
+  provider: anthropic
+  model: claude-haiku-4-5-20251001
+
+loop:
+  max_iterations: 10
+  vuln_threshold: 7.0
+  mutation_batch_size: 3

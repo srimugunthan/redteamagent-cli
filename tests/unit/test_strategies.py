@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 from redteamagentloop.agent.strategies import STRATEGY_REGISTRY, AttackStrategy
@@ -56,6 +57,7 @@ ALL_STRATEGY_NAMES = [
     "ContextOverflow",
     "ObfuscatedRequest",
     "FinServSpecific",
+    "StaticFile",
 ]
 
 
@@ -63,7 +65,7 @@ ALL_STRATEGY_NAMES = [
 # Registry
 # ---------------------------------------------------------------------------
 
-def test_registry_contains_all_ten_strategies():
+def test_registry_contains_all_eleven_strategies():
     assert set(ALL_STRATEGY_NAMES) == set(STRATEGY_REGISTRY.keys())
 
 
@@ -94,6 +96,8 @@ def test_each_strategy_has_required_class_attributes(name):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("name", ALL_STRATEGY_NAMES)
 async def test_generate_prompt_returns_non_empty_string(name):
+    from redteamagentloop.agent.strategies.static_file import configure
+    configure(_KNOWN_JAILBREAKS)
     strategy = AttackStrategy.from_name(name)
     llm = make_mock_llm("This is the generated adversarial prompt.")
     state = make_state()
@@ -279,6 +283,8 @@ def test_leetspeak_transforms_characters():
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+_KNOWN_JAILBREAKS = str(Path(__file__).parent.parent / "static_prompts" / "known_jailbreaks.jsonl")
+
 
 @given(objective=st.text(min_size=1, max_size=200))
 @settings(max_examples=30, deadline=5000)
@@ -286,6 +292,8 @@ def test_strategy_never_crashes_on_arbitrary_objective(objective):
     """Any non-empty objective string must not raise during generate_prompt."""
     import asyncio
     from redteamagentloop.agent.strategies import STRATEGY_REGISTRY
+    from redteamagentloop.agent.strategies.static_file import configure
+    configure(_KNOWN_JAILBREAKS)
 
     state = {
         "target_objective": objective,
@@ -312,6 +320,8 @@ def test_strategy_never_crashes_on_arbitrary_objective(objective):
 def test_strategy_output_is_nonempty_string(objective, history_size):
     """generate_prompt must always return a non-empty string."""
     import asyncio
+    from redteamagentloop.agent.strategies.static_file import configure
+    configure(_KNOWN_JAILBREAKS)
 
     state = {
         "target_objective": objective,

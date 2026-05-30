@@ -76,9 +76,14 @@ class CrescendoOrchestrator(MultiTurnOrchestrator):
                 0.0, "", attacker_llm,
             )
             result = await exchange_fn(base_state, prompt, conversation_history, run_config)
+            raw = result.get("current_response", "")
+            try:
+                assistant_content = json.loads(raw).get("answer", raw)
+            except (json.JSONDecodeError, AttributeError):
+                assistant_content = raw
             conversation_history += [
                 {"role": "user", "content": prompt},
-                {"role": "assistant", "content": result.get("current_response", "")},
+                {"role": "assistant", "content": assistant_content},
             ]
             attack_records.append(
                 _build_record(result, base_state["session_id"], turn, "crescendo")

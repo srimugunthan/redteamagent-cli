@@ -39,3 +39,10 @@ asyncio_mode = "auto"
 
 [tool.hatch.build.targets.wheel]
 packages = ["redteamagentloop"]
+
+[dependency-groups]
+dev = [
+    "fastapi>=0.136.3",
+    "httpx>=0.28.1",
+    "uvicorn>=0.48.0",
+]

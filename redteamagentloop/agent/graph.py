@@ -9,6 +9,7 @@ from langgraph.graph import END, START, StateGraph
 
 from redteamagentloop.agent.nodes.attacker import attacker_node
 from redteamagentloop.agent.nodes.judge import judge_node
+from redteamagentloop.agent.nodes.rag_judge import rag_judge_node
 from redteamagentloop.agent.nodes.loop_controller import (
     loop_controller_node,
     route_after_judge,
@@ -28,9 +29,11 @@ def build_graph(app_config: "AppConfig") -> "CompiledGraph":
     """Assemble and compile the RedTeamAgentLoop StateGraph."""
     graph = StateGraph(RedTeamState)
 
+    _judge_fn = rag_judge_node if getattr(app_config.targets[0], "target_type", "llm") == "rag" else judge_node
+
     graph.add_node("attacker", attacker_node)
     graph.add_node("target_caller", target_caller_node)
-    graph.add_node("judge", judge_node)
+    graph.add_node("judge", _judge_fn)
     graph.add_node("loop_controller", loop_controller_node)
     graph.add_node("vuln_logger", vuln_logger_node)
     graph.add_node("mutation_engine", mutation_engine_node)

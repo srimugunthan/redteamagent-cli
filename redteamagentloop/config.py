@@ -16,13 +16,23 @@ from pydantic import BaseModel, Field, field_validator
 # ---------------------------------------------------------------------------
 
 class TargetConfig(BaseModel):
-    model: str
-    base_url: str
+    model: str = ""
+    base_url: str = ""
     api_key: str = "ollama"
     system_prompt: str = ""
     timeout_seconds: int = 30
     output_tag: str
     rpm: int = 0  # calls per minute; 0 = no limit
+
+    # RAG target fields — all defaulted so existing LLM configs load unchanged
+    target_type: Literal["llm", "rag"] = "llm"
+    endpoint_url: str = ""
+    request_field: str = "query"
+    response_field: str = "answer"
+    chunks_field: str = "chunks"
+    chunk_text_field: str = "text"
+    extra_body: dict = Field(default_factory=dict)
+    auth_header: str = ""
 
 
 class AttackerConfig(BaseModel):

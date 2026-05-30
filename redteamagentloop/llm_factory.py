@@ -18,11 +18,14 @@ in-process stubs that return scripted responses drawn at random from small fixtu
 
 from __future__ import annotations
 
+import json
 import os
 import random
 from typing import TYPE_CHECKING
 
+import httpx
 from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import AIMessage, HumanMessage
 
 if TYPE_CHECKING:
     from redteamagentloop.config import AppConfig, TargetConfig
@@ -77,8 +80,70 @@ def build_attacker_llm(config: "AppConfig") -> BaseChatModel:
     )
 
 
-def build_target_llm(target: "TargetConfig") -> BaseChatModel:
-    """Build a target LLM from a TargetConfig."""
+class HttpTargetAdapter:
+    """Wraps an HTTP RAG endpoint behind the ainvoke() interface expected by target_caller_node.
+
+    Extracts required fields (answer, chunks) and optional fields (retrieval_query, cache,
+    trace, debug), then serialises a normalised dict as AIMessage.content so rag_judge_node
+    always sees a consistent structure regardless of which optional fields the endpoint returns.
+    """
+
+    def __init__(self, target: "TargetConfig") -> None:
+        self._url = target.endpoint_url
+        self._request_field = target.request_field
+        self._response_field = target.response_field
+        self._chunks_field = target.chunks_field
+        self._chunk_text_field = target.chunk_text_field
+        self._extra_body = target.extra_body
+        self._timeout = target.timeout_seconds
+        self._headers: dict[str, str] = {}
+        if target.auth_header:
+            self._headers["Authorization"] = target.auth_header
+
+    async def ainvoke(self, messages) -> AIMessage:
+        prompt = next(
+            (m.content for m in reversed(messages) if isinstance(m, HumanMessage)), ""
+        )
+        body = {self._request_field: prompt, **self._extra_body}
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            r = await client.post(self._url, json=body, headers=self._headers)
+            r.raise_for_status()
+        raw = r.json()
+
+        answer = raw.get(self._response_field, "")
+        raw_chunks = raw.get(self._chunks_field, [])
+
+        chunks = []
+        for chunk in raw_chunks:
+            if isinstance(chunk, str):
+                chunks.append({"text": chunk})
+            elif isinstance(chunk, dict):
+                chunks.append({
+                    "text": chunk.get(self._chunk_text_field, ""),
+                    "doc_id": chunk.get("doc_id"),
+                    "namespace": chunk.get("namespace"),
+                    "score": chunk.get("score"),
+                    "reranker_score": chunk.get("reranker_score"),
+                    "position": chunk.get("position"),
+                    "source_uri": chunk.get("source_uri"),
+                })
+
+        normalised = {
+            "answer": answer,
+            "chunks": chunks,
+            "retrieval_query": raw.get("retrieval_query"),
+            "cache": raw.get("cache"),
+            "trace": raw.get("trace"),
+            "debug": raw.get("debug"),
+        }
+        return AIMessage(content=json.dumps(normalised))
+
+
+def build_target_llm(target: "TargetConfig"):
+    """Build a target LLM or HTTP adapter from a TargetConfig."""
+    if getattr(target, "target_type", "llm") == "rag":
+        return HttpTargetAdapter(target)
+
     from langchain_openai import ChatOpenAI
 
     return ChatOpenAI(
