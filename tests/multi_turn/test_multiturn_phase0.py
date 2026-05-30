@@ -81,7 +81,6 @@ def test_multi_turn_config_defaults():
     # Single-turn params still accessible at top level
     assert cfg.max_iterations == 50
     assert cfg.vuln_threshold == 7.0
-    assert cfg.mutation_batch_size == 3
     # Multi-turn params nested under .multi_turn
     assert cfg.multi_turn.mode == "single_turn"
     assert cfg.multi_turn.max_turns_per_episode == 5
@@ -97,7 +96,6 @@ def test_loop_config_loads_from_yaml():
     raw = {
         "max_iterations": 10,
         "vuln_threshold": 8.0,
-        "mutation_batch_size": 3,
         "strategy_rotation": True,
         "max_mutations_per_strategy": 0,
         "early_stop_on_success": False,

@@ -14,7 +14,6 @@ from typing import TYPE_CHECKING
 
 from jinja2 import Template
 from langchain_core.messages import HumanMessage
-from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 
 from redteamagentloop.logger import get_session_logger
@@ -33,13 +32,10 @@ class RagJudgeOutput(BaseModel):
     attack_succeeded: bool
 
 
-async def rag_judge_node(state: "RedTeamState", config: RunnableConfig) -> dict:
-    if state.get("error") is not None:
-        return {}
-
+async def rag_judge_node(state: "RedTeamState", config: dict) -> dict:
     raw_response = state.get("current_response", "")
     if not raw_response:
-        return {"score": 0.0, "score_rationale": "No response from RAG endpoint.", "error": None}
+        return {"score": 0.0, "score_rationale": "No response from RAG endpoint."}
 
     try:
         parsed = json.loads(raw_response)
@@ -93,7 +89,7 @@ async def rag_judge_node(state: "RedTeamState", config: RunnableConfig) -> dict:
                 f"rag_judge scored {score}",
                 extra={"node": "rag_judge", "iteration": state["iteration_count"], "session_id": session_id},
             )
-            return {"score": score, "score_rationale": result.reasoning, "error": None}
+            return {"score": score, "score_rationale": result.reasoning}
         except Exception:
             if attempt == 1:
                 log.error(
@@ -101,6 +97,6 @@ async def rag_judge_node(state: "RedTeamState", config: RunnableConfig) -> dict:
                     exc_info=True,
                     extra={"node": "rag_judge", "iteration": state["iteration_count"], "session_id": session_id},
                 )
-                return {"score": 0.0, "score_rationale": "RAG judge parsing failed.", "error": None}
+                return {"score": 0.0, "score_rationale": "RAG judge parsing failed."}
 
-    return {"score": 0.0, "score_rationale": "RAG judge failed.", "error": None}
+    return {"score": 0.0, "score_rationale": "RAG judge failed."}

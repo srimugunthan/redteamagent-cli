@@ -13,6 +13,7 @@ from redteamagentloop.agent.nodes.loop_controller import loop_controller_node, r
 from redteamagentloop.agent.nodes.mutation_engine import _session_tactic_state, mutation_engine_node
 from redteamagentloop.agent.nodes.target_caller import target_caller_node
 from redteamagentloop.agent.nodes.vuln_logger import vuln_logger_node
+from redteamagentloop.exceptions import AttackerLLMFailed, MaxIterationsReached, TargetUnreachable
 
 
 # ---------------------------------------------------------------------------
@@ -37,7 +38,6 @@ def make_state(**overrides) -> dict:
         "max_iterations": 10,
         "vuln_threshold": 7.0,
         "session_id": "test-session-001",
-        "error": None,
     }
     base.update(overrides)
     return base
@@ -75,14 +75,13 @@ async def test_attacker_returns_prompt_and_increments_iteration():
     assert result["current_prompt"] == "Here is your adversarial prompt about finance."
     assert result["iteration_count"] == 1
     assert result["current_strategy"] != ""
-    assert result["error"] is None
 
 
 @pytest.mark.asyncio
 async def test_attacker_stops_at_max_iterations():
     state = make_state(iteration_count=10, max_iterations=10)
-    result = await attacker_node(state, make_config())
-    assert result["error"] == "max_iterations_reached"
+    with pytest.raises(MaxIterationsReached):
+        await attacker_node(state, make_config())
 
 
 @pytest.mark.asyncio
@@ -100,8 +99,8 @@ async def test_attacker_returns_error_when_llm_always_fails():
     llm.ainvoke = AsyncMock(side_effect=Exception("API down"))
     llm.temperature = 0.9
     llm.bind = MagicMock(return_value=llm)
-    result = await attacker_node(make_state(), make_config(attacker_llm=llm))
-    assert result.get("error") is not None
+    with pytest.raises(AttackerLLMFailed):
+        await attacker_node(make_state(), make_config(attacker_llm=llm))
 
 
 # ---------------------------------------------------------------------------
@@ -113,15 +112,13 @@ async def test_target_caller_returns_response():
     llm = make_mock_llm("I cannot help with that.")
     result = await target_caller_node(make_state(), make_config(target_llm=llm))
     assert result["current_response"] == "I cannot help with that."
-    assert result["error"] is None
 
 
 @pytest.mark.asyncio
 async def test_target_caller_returns_error_on_empty_prompt():
     state = make_state(current_prompt="")
-    result = await target_caller_node(state, make_config())
-    assert result["current_response"] == ""
-    assert result["error"] is not None
+    with pytest.raises(AttackerLLMFailed):
+        await target_caller_node(state, make_config())
 
 
 @pytest.mark.asyncio
@@ -129,18 +126,16 @@ async def test_target_caller_returns_error_on_timeout():
     import httpx
     llm = MagicMock()
     llm.ainvoke = AsyncMock(side_effect=httpx.TimeoutException("timed out"))
-    result = await target_caller_node(make_state(), make_config(target_llm=llm))
-    assert result["current_response"] == ""
-    assert "timeout" in result["error"].lower()
+    with pytest.raises(TargetUnreachable):
+        await target_caller_node(make_state(), make_config(target_llm=llm))
 
 
 @pytest.mark.asyncio
 async def test_target_caller_returns_error_on_llm_exception():
     llm = MagicMock()
     llm.ainvoke = AsyncMock(side_effect=Exception("connection refused"))
-    result = await target_caller_node(make_state(), make_config(target_llm=llm))
-    assert result["current_response"] == ""
-    assert result["error"] is not None
+    with pytest.raises(TargetUnreachable):
+        await target_caller_node(make_state(), make_config(target_llm=llm))
 
 
 @pytest.mark.asyncio
@@ -175,7 +170,6 @@ async def test_judge_returns_score_from_structured_output():
     llm.with_structured_output = MagicMock(return_value=llm)
     result = await judge_node(make_state(), make_config(judge_llm=llm))
     assert result["score"] == 8.5
-    assert result["error"] is None
 
 
 @pytest.mark.asyncio
@@ -185,7 +179,6 @@ async def test_judge_retries_on_parse_failure_then_returns_zero():
     llm.with_structured_output = MagicMock(return_value=llm)
     result = await judge_node(make_state(), make_config(judge_llm=llm))
     assert result["score"] == 0.0
-    assert result["error"] is None
 
 
 @pytest.mark.asyncio
@@ -210,13 +203,13 @@ async def test_mutation_engine_returns_mutations():
     cfg = make_config(attacker_llm=llm)
     cfg["configurable"]["app_config"] = MagicMock(
         attacker=MagicMock(model="x", base_url="y", temperature=0.9, max_tokens=512),
-        loop=MagicMock(mutation_batch_size=3),
+        loop=MagicMock(),
     )
     _session_tactic_state.pop("mut-session", None)
     state = make_state(session_id="mut-session")
     result = await mutation_engine_node(state, cfg)
-    assert len(result["current_mutations"]) == 3
-    assert len(result["mutation_queue"]) == 3
+    assert len(result["current_mutations"]) == 1
+    assert len(result["mutation_queue"]) == 1
 
 
 @pytest.mark.asyncio
@@ -232,13 +225,13 @@ async def test_mutation_engine_appends_to_existing_queue():
     cfg = make_config(attacker_llm=llm)
     cfg["configurable"]["app_config"] = MagicMock(
         attacker=MagicMock(model="x", base_url="y", temperature=0.9, max_tokens=512),
-        loop=MagicMock(mutation_batch_size=2),
+        loop=MagicMock(),
     )
     _session_tactic_state.pop("queue-session", None)
     state = make_state(session_id="queue-session", mutation_queue=["existing-prompt"])
     result = await mutation_engine_node(state, cfg)
     assert "existing-prompt" in result["mutation_queue"]
-    assert len(result["mutation_queue"]) == 3  # 1 existing + 2 new
+    assert len(result["mutation_queue"]) == 2  # 1 existing + 1 new
 
 
 @pytest.mark.asyncio
@@ -248,7 +241,7 @@ async def test_mutation_engine_skips_llm_errors_gracefully():
     cfg = make_config(attacker_llm=llm)
     cfg["configurable"]["app_config"] = MagicMock(
         attacker=MagicMock(model="x", base_url="y", temperature=0.9, max_tokens=512),
-        loop=MagicMock(mutation_batch_size=3),
+        loop=MagicMock(),
     )
     _session_tactic_state.pop("err-session", None)
     state = make_state(session_id="err-session")
@@ -317,53 +310,35 @@ async def test_loop_controller_node_records_attack_history():
 
 
 @pytest.mark.asyncio
-async def test_loop_controller_node_returns_empty_on_error():
-    result = await loop_controller_node(make_state(error="max_iterations_reached"), make_config())
-    assert result == {}
-
-
-@pytest.mark.asyncio
 async def test_loop_controller_node_returns_empty_on_no_prompt():
     result = await loop_controller_node(make_state(current_prompt=""), make_config())
     assert result == {}
 
 
-def test_route_max_iterations_reached():
-    state = make_state(error="max_iterations_reached")
-    assert route_after_judge(state) == "END"
-
-
-def test_route_other_error_goes_to_end():
-    state = make_state(error="some unexpected error")
-    assert route_after_judge(state) == "END"
-
-
 def test_route_high_score_goes_to_vuln_logger():
-    state = make_state(score=8.0, vuln_threshold=7.0, error=None)
+    state = make_state(score=8.0, vuln_threshold=7.0)
     assert route_after_judge(state) == "vuln_logger"
 
 
 def test_route_score_at_threshold_goes_to_vuln_logger():
-    state = make_state(score=7.0, vuln_threshold=7.0, error=None)
+    state = make_state(score=7.0, vuln_threshold=7.0)
     assert route_after_judge(state) == "vuln_logger"
 
 
 def test_route_queued_mutations_go_to_attacker():
-    state = make_state(score=3.0, vuln_threshold=7.0, error=None, mutation_queue=["queued"])
+    state = make_state(score=3.0, vuln_threshold=7.0, mutation_queue=["queued"])
     assert route_after_judge(state) == "attacker"
 
 
 def test_route_no_queue_goes_to_mutation_engine():
-    state = make_state(score=3.0, vuln_threshold=7.0, error=None, mutation_queue=[])
+    state = make_state(score=3.0, vuln_threshold=7.0, mutation_queue=[])
     assert route_after_judge(state) == "mutation_engine"
 
 
-def test_route_all_five_conditions_are_distinct():
+def test_route_all_conditions_are_distinct():
     routes = {
-        route_after_judge(make_state(error="max_iterations_reached")),
-        route_after_judge(make_state(error="other error")),
-        route_after_judge(make_state(score=8.0, error=None)),
-        route_after_judge(make_state(score=3.0, error=None, mutation_queue=["x"])),
-        route_after_judge(make_state(score=3.0, error=None, mutation_queue=[])),
+        route_after_judge(make_state(score=8.0)),
+        route_after_judge(make_state(score=3.0, mutation_queue=["x"])),
+        route_after_judge(make_state(score=3.0, mutation_queue=[])),
     }
-    assert routes == {"END", "vuln_logger", "attacker", "mutation_engine"}
+    assert routes == {"vuln_logger", "attacker", "mutation_engine"}

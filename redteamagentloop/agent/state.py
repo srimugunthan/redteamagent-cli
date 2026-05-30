@@ -1,33 +1,16 @@
 """State schema for RedTeamAgentLoop.
 
 All nodes receive a RedTeamState and return a partial dict of changed fields.
-LangGraph merges those partials using the reducers defined here.
+_merge() in cli.py handles field accumulation (lists append, sets union).
 """
 
 from __future__ import annotations
 
-import operator
-from typing import Annotated, TypedDict
+import uuid
+from typing import TYPE_CHECKING, TypedDict
 
-
-# ---------------------------------------------------------------------------
-# Reducer functions
-# ---------------------------------------------------------------------------
-
-def append_to_list(existing: list, new: list) -> list:
-    """Append new items to the existing list rather than replacing it.
-
-    Used for attack_history and successful_attacks so that each node's
-    partial update accumulates rather than overwrites.
-    """
-    return existing + new
-
-
-def union_sets(existing: set[str], new: set[str]) -> set[str]:
-    """Union two sets — used for failed_strategies so exhausted strategies
-    accumulate across iterations without duplication.
-    """
-    return existing | new
+if TYPE_CHECKING:
+    from redteamagentloop.config import AppConfig
 
 
 # ---------------------------------------------------------------------------
@@ -38,6 +21,7 @@ class AttackRecord(TypedDict):
     """Snapshot of a single attack iteration."""
     session_id: str
     iteration: int
+    episode: int            # 0 for single-turn; episode index for multi-turn
     strategy: str
     prompt: str
     response: str
@@ -61,10 +45,10 @@ class RedTeamState(TypedDict):
     score_rationale: str
     iteration_count: int
 
-    # --- Memory (append-only via reducers) ---
-    attack_history: Annotated[list[AttackRecord], append_to_list]
-    successful_attacks: Annotated[list[AttackRecord], append_to_list]
-    failed_strategies: Annotated[set[str], union_sets]
+    # --- Memory (accumulated by _merge() in cli.py) ---
+    attack_history: list[AttackRecord]
+    successful_attacks: list[AttackRecord]
+    failed_strategies: set[str]
 
     # --- Mutation pipeline ---
     mutation_queue: list[str]       # prompts queued for retry with mutations
@@ -80,5 +64,29 @@ class RedTeamState(TypedDict):
     # --- Strategy rotation ---
     strategy_mutation_count: int  # mutation engine cycles on current strategy; resets on strategy change
 
-    # --- Error signalling ---
-    error: str | None
+
+def build_initial_state(
+    config: "AppConfig",
+    target_objective: str,
+    target_system_prompt: str = "",
+) -> RedTeamState:
+    """Construct a fresh RedTeamState from config and a run objective."""
+    return RedTeamState(
+        current_strategy="",
+        current_prompt="",
+        current_response="",
+        score=0.0,
+        score_rationale="",
+        iteration_count=0,
+        attack_history=[],
+        successful_attacks=[],
+        failed_strategies=set(),
+        mutation_queue=[],
+        current_mutations=[],
+        strategy_mutation_count=0,
+        target_system_prompt=target_system_prompt,
+        target_objective=target_objective,
+        max_iterations=config.loop.max_iterations,
+        vuln_threshold=config.loop.vuln_threshold,
+        session_id=str(uuid.uuid4()),
+    )

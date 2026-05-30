@@ -5,7 +5,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_core.runnables import RunnableConfig
+
+from redteamagentloop.logger import get_session_logger
 
 if TYPE_CHECKING:
     from redteamagentloop.agent.state import RedTeamState
@@ -63,9 +64,17 @@ def _select_tactics(session_id: str, batch_size: int) -> list[tuple[str, str]]:
     return selected
 
 
-async def mutation_engine_node(state: "RedTeamState", config: RunnableConfig) -> dict:
+async def mutation_engine_node(state: "RedTeamState", config: dict) -> dict:
     seed_prompt = state["current_prompt"]
+    session_id = state["session_id"]
+    log = get_session_logger(session_id)
+
     if not seed_prompt:
+        log.debug(
+            "mutation engine skipped: no seed prompt",
+            extra={"node": "mutation_engine", "iteration": state["iteration_count"],
+                   "session_id": session_id},
+        )
         return {"mutation_queue": state["mutation_queue"], "current_mutations": []}
 
     cfg = config.get("configurable", {})
@@ -76,11 +85,18 @@ async def mutation_engine_node(state: "RedTeamState", config: RunnableConfig) ->
         from redteamagentloop.llm_factory import build_attacker_llm
         attacker_llm = build_attacker_llm(app_config)
 
-    batch_size = app_config.loop.mutation_batch_size if app_config else 3
-    tactics = _select_tactics(state["session_id"], batch_size)
+    tactics = _select_tactics(session_id, 1)
+    tactic_names = [name for name, _ in tactics]
+
+    log.debug(
+        f"mutation engine started: tactics={tactic_names}",
+        extra={"node": "mutation_engine", "iteration": state["iteration_count"],
+               "session_id": session_id},
+    )
 
     new_mutations: list[str] = []
-    for _, instruction in tactics:
+    failed_tactics: list[str] = []
+    for tactic_name, instruction in tactics:
         try:
             response = await attacker_llm.ainvoke([
                 SystemMessage(content=instruction),
@@ -88,10 +104,28 @@ async def mutation_engine_node(state: "RedTeamState", config: RunnableConfig) ->
             ])
             mutated = response.content.strip()
             if not mutated:
+                log.warning(
+                    f"mutation tactic '{tactic_name}' returned empty output",
+                    extra={"node": "mutation_engine", "iteration": state["iteration_count"],
+                           "session_id": session_id},
+                )
                 continue
             new_mutations.append(mutated)
-        except Exception:
-            continue
+        except Exception as exc:
+            failed_tactics.append(tactic_name)
+            log.warning(
+                f"mutation tactic '{tactic_name}' failed: {exc}",
+                exc_info=True,
+                extra={"node": "mutation_engine", "iteration": state["iteration_count"],
+                       "session_id": session_id},
+            )
+
+    log.debug(
+        f"mutation engine complete: {len(new_mutations)}/{len(tactics)} mutations generated"
+        + (f", {len(failed_tactics)} failed: {failed_tactics}" if failed_tactics else ""),
+        extra={"node": "mutation_engine", "iteration": state["iteration_count"],
+               "session_id": session_id},
+    )
 
     updated_queue = list(state["mutation_queue"]) + new_mutations
     return {

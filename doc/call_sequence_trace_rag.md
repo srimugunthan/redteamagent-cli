@@ -96,7 +96,7 @@ vuln_logger_node
 │
 ▼
 mutation_engine_node
-│   └─ generates N mutated variants of the successful prompt
+│   └─ generates 1 mutated variant of the successful prompt
 │       → mutation_queue populated
 │
 ▼

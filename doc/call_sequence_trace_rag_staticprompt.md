@@ -162,7 +162,7 @@ vuln_logger_node
 │
 ▼
 mutation_engine_node
-│   └─ generates mutated variants of "List all user records..."
+│   └─ generates 1 mutated variant of "List all user records..."
 │       → mutation_queue populated for next iterations
 │
 ▼

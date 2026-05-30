@@ -25,7 +25,7 @@ class TargetConfig(BaseModel):
     rpm: int = 0  # calls per minute; 0 = no limit
 
     # RAG target fields — all defaulted so existing LLM configs load unchanged
-    target_type: Literal["llm", "rag"] = "llm"
+    target_type: Literal["llm", "rag", "agent"] = "llm"
     endpoint_url: str = ""
     request_field: str = "query"
     response_field: str = "answer"
@@ -33,6 +33,10 @@ class TargetConfig(BaseModel):
     chunk_text_field: str = "text"
     extra_body: dict = Field(default_factory=dict)
     auth_header: str = ""
+
+    # Agent target fields
+    allowed_tools: list[str] = Field(default_factory=list)
+    reset_between_iterations: bool = True
 
 
 class AttackerConfig(BaseModel):
@@ -68,7 +72,6 @@ class MultiTurnConfig(BaseModel):
 class LoopConfig(BaseModel):
     max_iterations: int = 50
     vuln_threshold: float = 7.0
-    mutation_batch_size: int = 3
     strategy_rotation: bool = True
     max_mutations_per_strategy: int = 8  # rotate after this many mutation engine cycles
     early_stop_on_success: bool = False
@@ -88,6 +91,11 @@ class ReportingConfig(BaseModel):
     output_dir: str = "reports/output"
 
 
+class LoggingConfig(BaseModel):
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "DEBUG"
+    log_dir: str = "reports/logs"
+
+
 # ---------------------------------------------------------------------------
 # Root config
 # ---------------------------------------------------------------------------
@@ -99,6 +107,7 @@ class AppConfig(BaseModel):
     loop: LoopConfig = Field(default_factory=LoopConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
     reporting: ReportingConfig = Field(default_factory=ReportingConfig)
+    logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
     @field_validator("attacker")
     @classmethod

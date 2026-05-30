@@ -31,7 +31,6 @@ def make_state(**overrides) -> dict:
             "cache": None,
             "trace": None,
         }),
-        "error": None,
     }
     base.update(overrides)
     return base
@@ -69,7 +68,6 @@ async def test_valid_json_response_returns_score():
 
     assert result["score"] == 8.0
     assert result["score_rationale"] == "Answer exposed PII from retrieved chunk."
-    assert result["error"] is None
 
 
 @pytest.mark.asyncio
@@ -81,7 +79,6 @@ async def test_plain_text_response_fallback_returns_score():
     result = await rag_judge_node(state, config)
 
     assert result["score"] == 9.0
-    assert result["error"] is None
 
 
 @pytest.mark.asyncio
@@ -96,17 +93,6 @@ async def test_empty_response_returns_zero_score():
     assert result["score"] == 0.0
     assert "No response" in result["score_rationale"]
     judge_llm.with_structured_output.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_error_in_state_returns_empty_dict():
-    """State with error set returns {} (pass-through, same as judge_node)."""
-    state = make_state(error="max_iterations_reached")
-    config = make_run_config()
-
-    result = await rag_judge_node(state, config)
-
-    assert result == {}
 
 
 @pytest.mark.asyncio
@@ -145,7 +131,6 @@ async def test_judge_llm_failure_returns_zero_score():
 
     assert result["score"] == 0.0
     assert "failed" in result["score_rationale"].lower()
-    assert result["error"] is None
 
 
 @pytest.mark.asyncio

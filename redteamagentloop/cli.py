@@ -9,19 +9,112 @@ from dotenv import load_dotenv
 from rich.console import Console
 
 from redteamagentloop.config import check_api_keys, check_authorization, load_config
+from redteamagentloop.exceptions import (
+    AttackerLLMFailed, CircuitBreakerTripped, MaxIterationsReached, TargetUnreachable,
+)
+from redteamagentloop.logger import configure_logging, get_log_path, get_session_logger
+from redteamagentloop.agent.state import build_initial_state
+from redteamagentloop.agent.nodes.attacker import attacker_node
+from redteamagentloop.agent.nodes.target_caller import target_caller_node
+from redteamagentloop.agent.nodes.judge import judge_node
+from redteamagentloop.agent.nodes.rag_judge import rag_judge_node
+from redteamagentloop.agent.nodes.agent_judge import agent_judge_node
+from redteamagentloop.agent.nodes.loop_controller import loop_controller_node, route_after_judge
+from redteamagentloop.agent.nodes.vuln_logger import vuln_logger_node
+from redteamagentloop.agent.nodes.mutation_engine import mutation_engine_node
 
 console = Console()
 
+_APPEND_FIELDS = {"attack_history", "successful_attacks"}
+_UNION_FIELDS = {"failed_strategies"}
+
+
+def _merge(state: dict, updates: dict) -> None:
+    for key, value in updates.items():
+        if key in _APPEND_FIELDS:
+            state[key] = state.get(key, []) + value
+        elif key in _UNION_FIELDS:
+            state[key] = state.get(key, set()) | value
+        else:
+            state[key] = value
+
+
+async def _run_target_loop(
+    initial_state: dict,
+    run_config: dict,
+    target_type: str = "llm",
+    dashboard=None,
+) -> dict:
+    """Plain async loop — the LangGraph-free execution path.
+
+    Drives attacker → target → judge → loop_controller in a while loop,
+    applying _merge() after each node to accumulate list/set fields.
+    dashboard.update() is called directly instead of via astream().
+    """
+    judge_fn = (
+        rag_judge_node   if target_type == "rag"   else
+        agent_judge_node if target_type == "agent" else
+        judge_node
+    )
+    state = dict(initial_state)
+
+    log = get_session_logger(state["session_id"])
+    log.info(
+        "session started",
+        extra={"node": "cli", "iteration": 0, "session_id": state["session_id"]},
+    )
+
+    try:
+        while True:
+            _merge(state, await attacker_node(state, run_config))
+            _merge(state, await target_caller_node(state, run_config))
+            _merge(state, await judge_fn(state, run_config))
+            _merge(state, await loop_controller_node(state, run_config))
+
+            if dashboard is not None and state.get("attack_history"):
+                dashboard.update(state["attack_history"][-1])
+
+            route = route_after_judge(state)
+            if route == "END":
+                break
+            if route == "vuln_logger":
+                _merge(state, await vuln_logger_node(state, run_config))
+                _merge(state, await mutation_engine_node(state, run_config))
+            elif route == "mutation_engine":
+                _merge(state, await mutation_engine_node(state, run_config))
+
+    except MaxIterationsReached:
+        log.info(
+            "session complete: max iterations reached",
+            extra={"node": "cli", "iteration": state.get("iteration_count", 0),
+                   "session_id": state["session_id"]},
+        )
+    except CircuitBreakerTripped as exc:
+        console.print(f"[red]Session terminated: {exc}[/red]")
+        log.error(
+            f"session terminated by circuit breaker: {exc}",
+            extra={"node": "cli", "iteration": state.get("iteration_count", 0),
+                   "session_id": state["session_id"]},
+        )
+    except (AttackerLLMFailed, TargetUnreachable) as exc:
+        console.print(f"[yellow]Session ended early: {exc}[/yellow]")
+        log.warning(
+            f"session ended early: {exc}",
+            extra={"node": "cli", "iteration": state.get("iteration_count", 0),
+                   "session_id": state["session_id"]},
+        )
+
+    return state
+
 
 async def _run_target(
-    graph,
     initial_state,
     app_config,
     target,
     output_dir: str,
     use_mock: bool = False,
 ) -> None:
-    """Run the graph against a single target, persist results, and save report."""
+    """Run the plain loop against a single target, persist results, and save report."""
     from rich.panel import Panel
     from redteamagentloop.llm_factory import (
         build_attacker_llm, build_judge_llm, build_target_llm,
@@ -33,9 +126,11 @@ async def _run_target(
     from redteamagentloop.terminal_dashboard import TerminalDashboard
 
     mode_label = " [yellow](mock)[/yellow]" if use_mock else ""
+    log_path = get_log_path(initial_state["session_id"])
     console.print(Panel(
         f"[bold cyan]Target:[/bold cyan] {target.model} ({target.output_tag}){mode_label}\n"
-        f"[bold cyan]Objective:[/bold cyan] {initial_state['target_objective']}",
+        f"[bold cyan]Objective:[/bold cyan] {initial_state['target_objective']}\n"
+        f"[bold cyan]Session log:[/bold cyan] {log_path}",
         title="RedTeamAgentLoop — starting run",
     ))
 
@@ -76,18 +171,14 @@ async def _run_target(
         "judge_rate_limiter": judge_rate_limiter,
     }}
 
-    # Stream the graph so the dashboard updates live after each iteration.
-    # astream(stream_mode="values") yields the full merged state after every node;
-    # the Live context must be active for dashboard.update() to render anything.
-    final_state = {}
-    displayed = 0
+    target_type = getattr(target, "target_type", "llm")
+    if target_type == "agent":
+        run_config["configurable"]["allowed_tools"] = target.allowed_tools
+
     with dashboard.live_context():
-        async for state in graph.astream(initial_state, config=run_config, stream_mode="values"):
-            final_state = state
-            history_so_far = state.get("attack_history", [])
-            while displayed < len(history_so_far):
-                dashboard.update(history_so_far[displayed])
-                displayed += 1
+        final_state = await _run_target_loop(
+            initial_state, run_config, target_type=target_type, dashboard=dashboard
+        )
 
     successes = final_state.get("successful_attacks", [])
     history = final_state.get("attack_history", [])
@@ -129,6 +220,14 @@ async def _run_target_multiturn(
     )
     from redteamagentloop.storage.manager import StorageManager
     from redteamagentloop.report_generator import ReportGenerator
+
+    log_path = get_log_path(initial_state["session_id"])
+    console.print(f"[dim]Session log:[/dim] {log_path}")
+    log = get_session_logger(initial_state["session_id"])
+    log.info(
+        "multi-turn session started",
+        extra={"node": "cli", "iteration": 0, "session_id": initial_state["session_id"]},
+    )
 
     if use_mock:
         attacker_llm = build_mock_attacker()
@@ -188,16 +287,16 @@ async def _run_target_multiturn(
     )
 
     generator = ReportGenerator()
-    report = generator.load_session_data(
+    report = generator.load_multiturn_data(
         session_id=initial_state["session_id"],
-        attack_history=all_records,
-        successful_attacks=successes,
+        episode_results=episode_results,
         target_model=target.model,
         objective=initial_state["target_objective"],
+        mode=mt_cfg.mode,
+        max_turns_per_episode=mt_cfg.max_turns_per_episode,
         vuln_threshold=app_config.loop.vuln_threshold,
-        total_iterations=total_turns,
     )
-    report_path = generator.save(report, output_dir)
+    report_path = generator.save_multiturn(report, output_dir)
     console.print(f"[dim]Report saved → {report_path}[/dim]")
 
 
@@ -251,6 +350,12 @@ def main() -> None:
     check_authorization(args.auth)
     app_config = load_config(args.config)
 
+    # Configure logging early — before any session logger is created.
+    configure_logging(
+        log_level=app_config.logging.log_level,
+        log_dir=app_config.logging.log_dir,
+    )
+
     if args.prompt_file:
         app_config.attacker.prompt_file = args.prompt_file
 
@@ -272,8 +377,6 @@ def main() -> None:
     if not args.mock:
         check_api_keys(app_config)
 
-    from redteamagentloop.agent.graph import build_graph, build_initial_state
-
     if args.mock:
         from redteamagentloop.config import TargetConfig
         targets = [TargetConfig(
@@ -293,8 +396,6 @@ def main() -> None:
             console.print(f"[red]No targets matched '{args.target}'.[/red]")
             return
 
-    graph = build_graph(app_config)
-
     async def run_all() -> None:
         for target in targets:
             initial_state = build_initial_state(
@@ -304,7 +405,7 @@ def main() -> None:
             )
             if app_config.loop.multi_turn.mode == "single_turn":
                 await _run_target(
-                    graph, initial_state, app_config, target,
+                    initial_state, app_config, target,
                     args.output_dir, use_mock=args.mock,
                 )
             else:

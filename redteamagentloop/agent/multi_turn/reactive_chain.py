@@ -10,10 +10,11 @@ from redteamagentloop.agent.state import AttackRecord
 from .base import EpisodeResult, MultiTurnOrchestrator, PromptSource, register_orchestrator
 
 
-def _build_record(result: dict, session_id: str, turn: int) -> AttackRecord:
+def _build_record(result: dict, session_id: str, turn: int, episode: int) -> AttackRecord:
     return AttackRecord(
         session_id=session_id,
         iteration=turn,
+        episode=episode,
         strategy="multi_turn_reactive_chain",
         prompt=result.get("current_prompt", ""),
         response=result.get("current_response", ""),
@@ -38,6 +39,7 @@ class ReactiveChainOrchestrator(MultiTurnOrchestrator):
         base_state: dict,
         run_config: dict,
         prompt_source: PromptSource,
+        episode: int = 0,
     ) -> EpisodeResult:
         conversation_history: list[dict] = []
         attack_records: list[AttackRecord] = []
@@ -66,7 +68,7 @@ class ReactiveChainOrchestrator(MultiTurnOrchestrator):
             ]
             last_score = result.get("score", 0.0)
             last_rationale = result.get("score_rationale", "")
-            attack_records.append(_build_record(result, base_state["session_id"], turn))
+            attack_records.append(_build_record(result, base_state["session_id"], turn, episode))
             if last_score >= base_state["vuln_threshold"]:
                 break
 

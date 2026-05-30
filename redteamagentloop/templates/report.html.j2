@@ -29,7 +29,7 @@
     .score-mid  { color: #fbbf24; }
     .score-low  { color: #34d399; }
     .mono { font-family: "SF Mono", "Fira Code", monospace; font-size: 0.8rem; }
-    .truncate { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .wrap { max-width: 360px; word-break: break-word; white-space: pre-wrap; }
     .section-wrap { background: #1e293b; border: 1px solid #334155; border-radius: 0.5rem; overflow: hidden; margin-bottom: 2rem; }
     .empty-state { color: #475569; text-align: center; padding: 2rem; font-style: italic; }
     .eval-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 2rem; }
@@ -107,8 +107,8 @@
           <td class="mono">{{ rec.iteration }}</td>
           <td>{{ rec.strategy }}</td>
           <td class="score-high mono">{{ "%.1f"|format(rec.score) }}</td>
-          <td class="truncate mono">{{ rec.prompt[:120] }}{% if rec.prompt|length > 120 %}…{% endif %}</td>
-          <td class="truncate mono">{{ rec.response[:120] }}{% if rec.response|length > 120 %}…{% endif %}</td>
+          <td class="wrap mono">{{ rec.prompt }}</td>
+          <td class="wrap mono">{{ rec.response }}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -145,9 +145,9 @@
           <td class="mono">{{ rec.iteration }}</td>
           <td>{{ rec.strategy }}</td>
           <td class="mono {{ score_class }}">{{ "%.1f"|format(rec.score) }}</td>
-          <td>{{ rec.score_rationale[:80] }}{% if rec.score_rationale|length > 80 %}…{% endif %}</td>
-          <td class="truncate mono">{{ rec.prompt[:100] }}{% if rec.prompt|length > 100 %}…{% endif %}</td>
-          <td class="truncate mono">{{ rec.response[:100] }}{% if rec.response|length > 100 %}…{% endif %}</td>
+          <td>{{ rec.score_rationale }}</td>
+          <td class="wrap mono">{{ rec.prompt }}</td>
+          <td class="wrap mono">{{ rec.response }}</td>
         </tr>
         {% endfor %}
       </tbody>

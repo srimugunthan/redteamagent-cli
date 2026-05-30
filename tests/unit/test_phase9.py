@@ -22,9 +22,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from langchain_core.messages import AIMessage
 
+from redteamagentloop.exceptions import CircuitBreakerTripped, TargetUnreachable
 from redteamagentloop.guardrails import GuardrailResult, check_prompt
 from redteamagentloop.ratelimit import RateLimiter
-from redteamagentloop.logger import get_session_logger
+from redteamagentloop.logger import configure_logging, get_session_logger
 
 
 # ===========================================================================
@@ -148,16 +149,19 @@ class TestRateLimiter:
 
 class TestGetSessionLogger:
     def test_returns_logger_instance(self, tmp_path):
-        logger = get_session_logger("test-session-abc", log_dir=str(tmp_path))
+        configure_logging(log_dir=str(tmp_path))
+        logger = get_session_logger("test-session-abc")
         assert isinstance(logger, logging.Logger)
 
     def test_log_file_created(self, tmp_path):
-        get_session_logger("sess-001", log_dir=str(tmp_path))
+        configure_logging(log_dir=str(tmp_path))
+        get_session_logger("sess-001")
         log_file = tmp_path / "sess-001.log"
         assert log_file.exists()
 
     def test_log_writes_valid_json(self, tmp_path):
-        logger = get_session_logger("sess-002", log_dir=str(tmp_path))
+        configure_logging(log_dir=str(tmp_path))
+        logger = get_session_logger("sess-002")
         logger.info("test message", extra={"node": "attacker", "iteration": 1, "session_id": "sess-002"})
         # Flush handlers
         for h in logger.handlers:
@@ -171,19 +175,22 @@ class TestGetSessionLogger:
         assert parsed["iteration"] == 1
 
     def test_same_session_id_returns_same_logger(self, tmp_path):
-        log1 = get_session_logger("sess-dup", log_dir=str(tmp_path))
-        log2 = get_session_logger("sess-dup", log_dir=str(tmp_path))
+        configure_logging(log_dir=str(tmp_path))
+        log1 = get_session_logger("sess-dup")
+        log2 = get_session_logger("sess-dup")
         assert log1 is log2
 
     def test_no_duplicate_handlers(self, tmp_path):
-        logger = get_session_logger("sess-nodup", log_dir=str(tmp_path))
+        configure_logging(log_dir=str(tmp_path))
+        logger = get_session_logger("sess-nodup")
         handler_count_before = len(logger.handlers)
         # Call again — should NOT add another handler
-        get_session_logger("sess-nodup", log_dir=str(tmp_path))
+        get_session_logger("sess-nodup")
         assert len(logger.handlers) == handler_count_before
 
     def test_propagate_is_false(self, tmp_path):
-        logger = get_session_logger("sess-prop", log_dir=str(tmp_path))
+        configure_logging(log_dir=str(tmp_path))
+        logger = get_session_logger("sess-prop")
         assert logger.propagate is False
 
 
@@ -209,7 +216,6 @@ def _make_attacker_state(session_id: str = "test-session") -> dict:
         "max_iterations": 10,
         "vuln_threshold": 7.0,
         "session_id": session_id,
-        "error": None,
     }
 
 
@@ -234,10 +240,8 @@ class TestAttackerNodeGuardrails:
             state = _make_attacker_state()
             config = {"configurable": {"attacker_llm": mock_llm, "app_config": None}}
 
-            result = await attacker_node(state, config)
-
-        assert result.get("error") is not None
-        assert "blocked" in result["error"].lower()
+            with pytest.raises(CircuitBreakerTripped):
+                await attacker_node(state, config)
 
     @pytest.mark.asyncio
     async def test_clean_prompt_passes_guardrail(self, tmp_path):
@@ -285,7 +289,6 @@ def _make_target_state(session_id: str = "cb-session") -> dict:
         "max_iterations": 10,
         "vuln_threshold": 7.0,
         "session_id": session_id,
-        "error": None,
         "current_strategy": "DirectJailbreak",
     }
 
@@ -308,10 +311,10 @@ class TestCircuitBreaker:
         config = {"configurable": {"target_llm": mock_llm, "app_config": None}}
 
         with patch("redteamagentloop.agent.nodes.target_caller.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
-            result = await target_caller.target_caller_node(state, config)
+            with pytest.raises(TargetUnreachable):
+                await target_caller.target_caller_node(state, config)
             mock_sleep.assert_called_once_with(60)
 
-        assert result.get("error") is not None
         assert _cb_state[session_id]["pauses"] == 1
         assert _cb_state[session_id]["consecutive_errors"] == 0
 
@@ -332,10 +335,8 @@ class TestCircuitBreaker:
         config = {"configurable": {"target_llm": mock_llm, "app_config": None}}
 
         with patch("redteamagentloop.agent.nodes.target_caller.asyncio.sleep", new_callable=AsyncMock):
-            result = await target_caller.target_caller_node(state, config)
-
-        assert result.get("error") is not None
-        assert "terminated" in result["error"].lower() or "exceeded" in result["error"].lower()
+            with pytest.raises(CircuitBreakerTripped):
+                await target_caller.target_caller_node(state, config)
 
     @pytest.mark.asyncio
     async def test_successful_call_resets_error_counter(self):

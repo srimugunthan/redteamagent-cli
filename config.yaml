@@ -32,7 +32,6 @@ loop:
   # --- single-turn parameters (ignored when multi_turn.mode != single_turn) ---
   max_iterations: 10
   vuln_threshold: 7.0
-  mutation_batch_size: 3
   strategy_rotation: true
   max_mutations_per_strategy: 0
   early_stop_on_success: false
@@ -54,3 +53,7 @@ storage:
 reporting:
   html_template: "reports/templates/report.html.j2"
   output_dir: "reports/output"
+
+logging:
+  log_level: "DEBUG"      # DEBUG | INFO | WARNING | ERROR
+  log_dir: "reports/logs" # one NDJSON file per session: {log_dir}/{session_id}.log

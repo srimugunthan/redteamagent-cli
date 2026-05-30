@@ -1,4 +1,4 @@
-"""Phase 1 tests — RedTeamState schema, reducers, and serialization."""
+"""RedTeamState schema, _merge() accumulation, and serialization."""
 
 from __future__ import annotations
 
@@ -7,12 +7,8 @@ from datetime import datetime, timezone
 
 import pytest
 
-from redteamagentloop.agent.state import (
-    AttackRecord,
-    RedTeamState,
-    append_to_list,
-    union_sets,
-)
+from redteamagentloop.agent.state import AttackRecord, RedTeamState
+from redteamagentloop.cli import _merge
 
 
 # ---------------------------------------------------------------------------
@@ -54,7 +50,6 @@ def make_state(**overrides) -> RedTeamState:
         "max_iterations": 50,
         "vuln_threshold": 7.0,
         "session_id": "sess-001",
-        "error": None,
     }
     base.update(overrides)
     return base
@@ -68,17 +63,15 @@ def test_state_instantiates_with_all_fields():
     state = make_state()
     assert state["iteration_count"] == 0
     assert state["score"] == 0.0
-    assert state["error"] is None
     assert state["attack_history"] == []
     assert state["successful_attacks"] == []
     assert state["failed_strategies"] == set()
 
 
 def test_state_accepts_non_default_values():
-    state = make_state(iteration_count=5, score=7.5, error="some error")
+    state = make_state(iteration_count=5, score=7.5)
     assert state["iteration_count"] == 5
     assert state["score"] == 7.5
-    assert state["error"] == "some error"
 
 
 # ---------------------------------------------------------------------------
@@ -99,62 +92,67 @@ def test_attack_record_unsuccessful():
 
 
 # ---------------------------------------------------------------------------
-# Reducer: append_to_list
+# _merge(): list accumulation (replaces append_to_list tests)
 # ---------------------------------------------------------------------------
 
-def test_append_to_list_adds_to_existing():
+def test_merge_appends_attack_history():
     r1 = make_attack_record(iteration=1)
     r2 = make_attack_record(iteration=2)
-    result = append_to_list([r1], [r2])
-    assert len(result) == 2
-    assert result[0]["iteration"] == 1
-    assert result[1]["iteration"] == 2
+    state = make_state(attack_history=[r1])
+    _merge(state, {"attack_history": [r2]})
+    assert len(state["attack_history"]) == 2
+    assert state["attack_history"][0]["iteration"] == 1
+    assert state["attack_history"][1]["iteration"] == 2
 
 
-def test_append_to_list_does_not_replace():
+def test_merge_appends_does_not_replace():
     r1 = make_attack_record(iteration=1)
     r2 = make_attack_record(iteration=2)
-    existing = [r1]
-    result = append_to_list(existing, [r2])
-    # original list is unchanged
-    assert len(existing) == 1
-    assert len(result) == 2
+    state = make_state(attack_history=[r1])
+    _merge(state, {"attack_history": [r2]})
+    assert len(state["attack_history"]) == 2
 
 
-def test_append_to_list_empty_new():
+def test_merge_appends_empty_update():
     r1 = make_attack_record()
-    result = append_to_list([r1], [])
-    assert len(result) == 1
+    state = make_state(attack_history=[r1])
+    _merge(state, {"attack_history": []})
+    assert len(state["attack_history"]) == 1
 
 
-def test_append_to_list_empty_existing():
+def test_merge_appends_to_empty_state():
     r1 = make_attack_record()
-    result = append_to_list([], [r1])
-    assert len(result) == 1
+    state = make_state(attack_history=[])
+    _merge(state, {"attack_history": [r1]})
+    assert len(state["attack_history"]) == 1
 
 
 # ---------------------------------------------------------------------------
-# Reducer: union_sets
+# _merge(): set union accumulation (replaces union_sets tests)
 # ---------------------------------------------------------------------------
 
-def test_union_sets_merges_without_duplication():
-    result = union_sets({"DirectJailbreak", "PersonaHijack"}, {"PersonaHijack", "FewShotPoisoning"})
-    assert result == {"DirectJailbreak", "PersonaHijack", "FewShotPoisoning"}
+def test_merge_unions_failed_strategies_without_duplication():
+    state = make_state(failed_strategies={"DirectJailbreak", "PersonaHijack"})
+    _merge(state, {"failed_strategies": {"PersonaHijack", "FewShotPoisoning"}})
+    assert state["failed_strategies"] == {"DirectJailbreak", "PersonaHijack", "FewShotPoisoning"}
 
 
-def test_union_sets_empty_new():
-    result = union_sets({"DirectJailbreak"}, set())
-    assert result == {"DirectJailbreak"}
+def test_merge_unions_empty_update():
+    state = make_state(failed_strategies={"DirectJailbreak"})
+    _merge(state, {"failed_strategies": set()})
+    assert state["failed_strategies"] == {"DirectJailbreak"}
 
 
-def test_union_sets_empty_existing():
-    result = union_sets(set(), {"DirectJailbreak"})
-    assert result == {"DirectJailbreak"}
+def test_merge_unions_empty_existing():
+    state = make_state(failed_strategies=set())
+    _merge(state, {"failed_strategies": {"DirectJailbreak"}})
+    assert state["failed_strategies"] == {"DirectJailbreak"}
 
 
-def test_union_sets_both_empty():
-    result = union_sets(set(), set())
-    assert result == set()
+def test_merge_unions_both_empty():
+    state = make_state(failed_strategies=set())
+    _merge(state, {"failed_strategies": set()})
+    assert state["failed_strategies"] == set()
 
 
 # ---------------------------------------------------------------------------

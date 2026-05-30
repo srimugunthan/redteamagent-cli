@@ -13,10 +13,10 @@ from typing import TYPE_CHECKING
 
 import httpx
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from rich.console import Console
 
+from redteamagentloop.exceptions import AttackerLLMFailed, CircuitBreakerTripped, TargetUnreachable
 from redteamagentloop.logger import get_session_logger
 
 if TYPE_CHECKING:
@@ -42,12 +42,9 @@ def _get_cb(session_id: str) -> dict:
     return _cb_state[session_id]
 
 
-async def target_caller_node(state: "RedTeamState", config: RunnableConfig) -> dict:
-    if state.get("error") is not None:
-        return {}  # pass through upstream error (e.g. max_iterations_reached)
-
+async def target_caller_node(state: "RedTeamState", config: dict) -> dict:
     if not state["current_prompt"]:
-        return {"current_response": "", "error": "Empty prompt — nothing to send to target."}
+        raise AttackerLLMFailed("Empty prompt — nothing to send to target.")
 
     cfg = config.get("configurable", {})
     app_config = cfg.get("app_config")
@@ -90,7 +87,7 @@ async def target_caller_node(state: "RedTeamState", config: RunnableConfig) -> d
         response = await target_llm.ainvoke(messages)
         # Success — reset consecutive error counter.
         cb["consecutive_errors"] = 0
-        return {"current_response": response.content.strip(), "error": None}
+        return {"current_response": response.content.strip()}
 
     except httpx.TimeoutException as exc:
         error_msg = f"Target LLM timeout: {exc}"
@@ -109,10 +106,9 @@ async def target_caller_node(state: "RedTeamState", config: RunnableConfig) -> d
         cb["pauses"] += 1
 
         if cb["pauses"] > _CB_MAX_PAUSES:
-            return {
-                "current_response": "",
-                "error": f"Circuit breaker: {_CB_MAX_PAUSES} pauses exceeded — session terminated.",
-            }
+            raise CircuitBreakerTripped(
+                f"Circuit breaker: {_CB_MAX_PAUSES} target pauses exceeded — session terminated."
+            )
 
         _console.print(
             f"[yellow]Circuit breaker: {_CB_ERROR_THRESHOLD} consecutive target errors "
@@ -121,4 +117,4 @@ async def target_caller_node(state: "RedTeamState", config: RunnableConfig) -> d
         )
         await asyncio.sleep(_CB_PAUSE_SECONDS)
 
-    return {"current_response": "", "error": error_msg}
+    raise TargetUnreachable(error_msg)

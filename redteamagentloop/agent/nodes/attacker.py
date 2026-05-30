@@ -5,9 +5,8 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
-from langchain_core.runnables import RunnableConfig
-
 from redteamagentloop.agent.strategies import STRATEGY_REGISTRY, AttackStrategy
+from redteamagentloop.exceptions import AttackerLLMFailed, CircuitBreakerTripped, MaxIterationsReached
 from redteamagentloop.guardrails import check_prompt
 from redteamagentloop.logger import get_session_logger
 
@@ -42,8 +41,13 @@ _MAX_GUARDRAIL_BLOCKS = 3
 
 
 def _available_strategies(failed: set[str]) -> list[str]:
+    from redteamagentloop.agent.strategies.static_file import get_library
     names = sorted(STRATEGY_REGISTRY.keys())
-    available = [n for n in names if n not in failed]
+    available = [
+        n for n in names
+        if n not in failed
+        and not (n == "StaticFile" and get_library() is None)
+    ]
     return available if available else names  # fallback: retry all if all failed
 
 
@@ -56,9 +60,11 @@ async def _next_strategy(failed: set[str]) -> str:
         return strategy
 
 
-async def attacker_node(state: "RedTeamState", config: RunnableConfig) -> dict:
+async def attacker_node(state: "RedTeamState", config: dict) -> dict:
     if state["iteration_count"] >= state["max_iterations"]:
-        return {"error": "max_iterations_reached"}
+        raise MaxIterationsReached(
+            f"reached {state['max_iterations']} iterations"
+        )
 
     cfg = config.get("configurable", {})
     app_config = cfg.get("app_config")
@@ -103,7 +109,6 @@ async def attacker_node(state: "RedTeamState", config: RunnableConfig) -> dict:
                 "current_prompt": static_prompt,
                 "current_strategy": current,
                 "iteration_count": state["iteration_count"] + 1,
-                "error": None,
             }
             if strategy_switched:
                 result["strategy_mutation_count"] = 0
@@ -163,16 +168,19 @@ async def attacker_node(state: "RedTeamState", config: RunnableConfig) -> dict:
             continue
 
     if blocked_count >= _MAX_GUARDRAIL_BLOCKS:
-        return {"error": f"Attacker generated {_MAX_GUARDRAIL_BLOCKS} consecutive blocked prompts — session terminated."}
+        raise CircuitBreakerTripped(
+            f"Attacker generated {_MAX_GUARDRAIL_BLOCKS} consecutive blocked prompts"
+        )
 
     if not prompt:
-        return {"error": f"Attacker LLM failed after 3 attempts: {last_error}"}
+        raise AttackerLLMFailed(
+            f"Attacker LLM failed after 3 attempts: {last_error}"
+        )
 
     result: dict = {
         "current_prompt": prompt,
         "current_strategy": current,
         "iteration_count": state["iteration_count"] + 1,
-        "error": None,
     }
     if strategy_switched:
         result["strategy_mutation_count"] = 0

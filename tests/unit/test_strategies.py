@@ -58,6 +58,9 @@ ALL_STRATEGY_NAMES = [
     "ObfuscatedRequest",
     "FinServSpecific",
     "StaticFile",
+    "ToolInjection",
+    "MemoryPoisoning",
+    "MultiHopManipulation",
 ]
 
 

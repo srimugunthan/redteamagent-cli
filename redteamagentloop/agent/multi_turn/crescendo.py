@@ -11,10 +11,11 @@ from .base import EpisodeResult, MultiTurnOrchestrator, register_orchestrator
 from .prompt_sources import DynamicCrescendoSource, StaticCrescendoSource
 
 
-def _build_record(result: dict, session_id: str, turn: int, strategy: str) -> AttackRecord:
+def _build_record(result: dict, session_id: str, turn: int, strategy: str, episode: int) -> AttackRecord:
     return AttackRecord(
         session_id=session_id,
         iteration=turn,
+        episode=episode,
         strategy=strategy,
         prompt=result.get("current_prompt", ""),
         response=result.get("current_response", ""),
@@ -57,6 +58,7 @@ class CrescendoOrchestrator(MultiTurnOrchestrator):
         base_state: dict,
         run_config: dict,
         prompt_source,
+        episode: int = 0,
     ) -> EpisodeResult:
         attacker_llm = run_config.get("configurable", {}).get("attacker_llm")
 
@@ -86,7 +88,7 @@ class CrescendoOrchestrator(MultiTurnOrchestrator):
                 {"role": "assistant", "content": assistant_content},
             ]
             attack_records.append(
-                _build_record(result, base_state["session_id"], turn, "crescendo")
+                _build_record(result, base_state["session_id"], turn, "crescendo", episode)
             )
             if result.get("score", 0.0) >= base_state["vuln_threshold"]:
                 break

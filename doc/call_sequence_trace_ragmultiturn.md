@@ -405,8 +405,8 @@ _run_target_multiturn() (resumed)
 │     "Multi-turn complete: 1 episodes, N total turns,
 │      best score 9.0/10, M successful attacks."
 │
-└─ ReportGenerator.save()
-      → reports/output/test-rag_<session>.html
+└─ ReportGenerator.save_multiturn()
+      → reports/output/test-rag_<session_id[:8]>_multiturn_<timestamp>.html
 ```
 
 ---

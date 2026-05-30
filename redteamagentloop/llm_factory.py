@@ -139,10 +139,54 @@ class HttpTargetAdapter:
         return AIMessage(content=json.dumps(normalised))
 
 
+class AgentTargetAdapter:
+    """Wraps the test_agent FastAPI server behind the ainvoke() interface.
+
+    Calls POST /invoke with an AttackPayload, optionally calls POST /reset
+    before each invocation (controlled by target.reset_between_iterations),
+    and passes the full AgentResponse JSON as AIMessage.content so
+    agent_judge_node always sees a consistent structure.
+
+    No normalisation is needed — the agent server already returns valid
+    AgentResponse JSON, unlike HttpTargetAdapter which normalises chunk dicts.
+    """
+
+    def __init__(self, target: "TargetConfig") -> None:
+        from urllib.parse import urlsplit, urlunsplit
+        self._invoke_url = target.endpoint_url.rstrip("/")
+        parts = urlsplit(self._invoke_url)
+        self._root = urlunsplit((parts.scheme, parts.netloc, "", "", ""))
+        self._timeout = target.timeout_seconds
+        self._reset_between = target.reset_between_iterations
+
+    async def ainvoke(self, messages) -> AIMessage:
+        prompt = next(
+            (m.content for m in reversed(messages) if isinstance(m, HumanMessage)), ""
+        )
+        if self._reset_between:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                try:
+                    await client.post(f"{self._root}/reset")
+                except httpx.HTTPError:
+                    pass
+        payload = {"turns": [prompt], "expected_behavior": "", "metadata": {}}
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            r = await client.post(
+                self._invoke_url,
+                content=json.dumps(payload),
+                headers={"Content-Type": "application/json"},
+            )
+            r.raise_for_status()
+        return AIMessage(content=r.text)
+
+
 def build_target_llm(target: "TargetConfig"):
     """Build a target LLM or HTTP adapter from a TargetConfig."""
-    if getattr(target, "target_type", "llm") == "rag":
+    target_type = getattr(target, "target_type", "llm")
+    if target_type == "rag":
         return HttpTargetAdapter(target)
+    if target_type == "agent":
+        return AgentTargetAdapter(target)
 
     from langchain_openai import ChatOpenAI
 

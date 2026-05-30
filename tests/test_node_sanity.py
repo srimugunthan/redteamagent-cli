@@ -18,6 +18,7 @@ from unittest.mock import AsyncMock, MagicMock
 from redteamagentloop.agent.nodes.attacker import attacker_node
 from redteamagentloop.agent.nodes.target_caller import target_caller_node
 from redteamagentloop.agent.nodes.judge import JudgeOutput, judge_node
+from redteamagentloop.exceptions import AttackerLLMFailed, MaxIterationsReached, TargetUnreachable
 
 
 # ---------------------------------------------------------------------------
@@ -43,14 +44,12 @@ def make_state(**overrides) -> dict:
         "mutation_queue": [],
         "current_mutations": [],
         "strategy_mutation_count": 0,
-        "error": None,
     }
     base.update(overrides)
     return base
 
 
 def make_mock_attacker_llm(prompt_text: str = "This is a test adversarial prompt about finance.") -> MagicMock:
-    """Mock attacker LLM — returns a canned prompt string."""
     llm = MagicMock()
     msg = MagicMock()
     msg.content = prompt_text
@@ -61,7 +60,6 @@ def make_mock_attacker_llm(prompt_text: str = "This is a test adversarial prompt
 
 
 def make_mock_target_llm(response_text: str = "I cannot provide specific investment advice.") -> MagicMock:
-    """Mock target LLM — returns a canned response string."""
     llm = MagicMock()
     msg = MagicMock()
     msg.content = response_text
@@ -70,7 +68,6 @@ def make_mock_target_llm(response_text: str = "I cannot provide specific investm
 
 
 def make_mock_judge_llm(score: float = 3.0, reasoning: str = "The response refused to give advice.") -> MagicMock:
-    """Mock judge LLM — returns a canned JudgeOutput via with_structured_output."""
     judge_output = JudgeOutput(
         score=score,
         violated_policy="none",
@@ -79,7 +76,6 @@ def make_mock_judge_llm(score: float = 3.0, reasoning: str = "The response refus
     )
     structured = MagicMock()
     structured.ainvoke = AsyncMock(return_value=judge_output)
-
     llm = MagicMock()
     llm.with_structured_output = MagicMock(return_value=structured)
     return llm
@@ -110,7 +106,6 @@ class TestAttackerNodeMock:
         llm = make_mock_attacker_llm()
         result = await attacker_node(make_state(), make_run_config(attacker_llm=llm))
         assert result["current_prompt"] != ""
-        assert result["error"] is None
 
     @pytest.mark.asyncio
     async def test_increments_iteration_count(self):
@@ -120,11 +115,11 @@ class TestAttackerNodeMock:
 
     @pytest.mark.asyncio
     async def test_stops_at_max_iterations(self):
-        result = await attacker_node(
-            make_state(iteration_count=10, max_iterations=10),
-            make_run_config(),
-        )
-        assert result["error"] == "max_iterations_reached"
+        with pytest.raises(MaxIterationsReached):
+            await attacker_node(
+                make_state(iteration_count=10, max_iterations=10),
+                make_run_config(),
+            )
 
     @pytest.mark.asyncio
     async def test_rotates_away_from_failed_strategy(self):
@@ -141,8 +136,8 @@ class TestAttackerNodeMock:
         llm.ainvoke = AsyncMock(side_effect=Exception("connection refused"))
         llm.temperature = 0.9
         llm.bind = MagicMock(return_value=llm)
-        result = await attacker_node(make_state(), make_run_config(attacker_llm=llm))
-        assert result.get("error") is not None
+        with pytest.raises(AttackerLLMFailed):
+            await attacker_node(make_state(), make_run_config(attacker_llm=llm))
 
 
 # ---------------------------------------------------------------------------
@@ -155,32 +150,21 @@ class TestTargetCallerNodeMock:
         llm = make_mock_target_llm()
         result = await target_caller_node(make_state(), make_run_config(target_llm=llm))
         assert result["current_response"] == "I cannot provide specific investment advice."
-        assert result["error"] is None
-
-    @pytest.mark.asyncio
-    async def test_skips_on_upstream_error(self):
-        result = await target_caller_node(
-            make_state(error="max_iterations_reached"),
-            make_run_config(),
-        )
-        assert result == {}
 
     @pytest.mark.asyncio
     async def test_error_on_empty_prompt(self):
-        result = await target_caller_node(
-            make_state(current_prompt=""),
-            make_run_config(),
-        )
-        assert result["current_response"] == ""
-        assert result["error"] is not None
+        with pytest.raises(AttackerLLMFailed):
+            await target_caller_node(
+                make_state(current_prompt=""),
+                make_run_config(),
+            )
 
     @pytest.mark.asyncio
     async def test_error_on_llm_failure(self):
         llm = MagicMock()
         llm.ainvoke = AsyncMock(side_effect=Exception("model not found"))
-        result = await target_caller_node(make_state(), make_run_config(target_llm=llm))
-        assert result["current_response"] == ""
-        assert result["error"] is not None
+        with pytest.raises(TargetUnreachable):
+            await target_caller_node(make_state(), make_run_config(target_llm=llm))
 
 
 # ---------------------------------------------------------------------------
@@ -193,12 +177,9 @@ class TestJudgeNodeMock:
         llm = make_mock_judge_llm(score=3.0)
         result = await judge_node(make_state(), make_run_config(judge_llm=llm))
         assert result["score"] == 3.0
-        assert result["error"] is None
 
     @pytest.mark.asyncio
     async def test_score_clamped_to_0_10(self):
-        # Bypass JudgeOutput's Pydantic validator by returning a plain mock
-        # with score=15 — the node must clamp it to 10.
         raw_output = MagicMock()
         raw_output.score = 15.0
         raw_output.reasoning = "over the top score"
@@ -208,14 +189,6 @@ class TestJudgeNodeMock:
         llm.with_structured_output = MagicMock(return_value=structured)
         result = await judge_node(make_state(), make_run_config(judge_llm=llm))
         assert result["score"] <= 10.0
-
-    @pytest.mark.asyncio
-    async def test_skips_on_upstream_error(self):
-        result = await judge_node(
-            make_state(error="max_iterations_reached"),
-            make_run_config(),
-        )
-        assert result == {}
 
     @pytest.mark.asyncio
     async def test_zero_score_on_empty_response(self):
@@ -253,7 +226,6 @@ class TestAttackerNodeLive:
             make_state(),
             make_run_config(attacker_llm=self.llm, app_config=self.config),
         )
-        assert result.get("error") is None, f"Attacker error: {result.get('error')}"
         assert len(result["current_prompt"]) > 20, "Expected a real attacker prompt, got a short string"
         print(f"\n[LIVE] Strategy: {result['current_strategy']}")
         print(f"[LIVE] Prompt:   {result['current_prompt'][:200]}")
@@ -263,14 +235,14 @@ class TestAttackerNodeLive:
         from redteamagentloop.agent.strategies import STRATEGY_REGISTRY
         errors = []
         for name in sorted(STRATEGY_REGISTRY.keys()):
-            result = await attacker_node(
-                make_state(current_strategy=name, failed_strategies=set()),
-                make_run_config(attacker_llm=self.llm, app_config=self.config),
-            )
-            if result.get("error"):
-                errors.append(f"{name}: {result['error']}")
-            else:
+            try:
+                result = await attacker_node(
+                    make_state(current_strategy=name, failed_strategies=set()),
+                    make_run_config(attacker_llm=self.llm, app_config=self.config),
+                )
                 print(f"\n[LIVE] {name}: {result['current_prompt'][:120]}")
+            except Exception as exc:
+                errors.append(f"{name}: {exc}")
         assert not errors, f"Strategies failed: {errors}"
 
 
@@ -296,7 +268,6 @@ class TestTargetCallerNodeLive:
             make_state(),
             make_run_config(target_llm=self.llm, app_config=self.config),
         )
-        assert result.get("error") is None, f"Target error: {result.get('error')}"
         assert len(result["current_response"]) > 0, "Expected a non-empty response from target"
         print(f"\n[LIVE] Target model: {self.target.model}")
         print(f"[LIVE] Response: {result['current_response'][:300]}")
@@ -323,9 +294,7 @@ class TestJudgeNodeLive:
             make_state(current_response="I'm sorry, I cannot provide investment advice."),
             make_run_config(judge_llm=self.llm, app_config=self.config),
         )
-        assert result.get("error") is None
         assert 0.0 <= result["score"] <= 10.0
-        # A clear refusal should score low
         assert result["score"] < 5.0, f"Expected low score for refusal, got {result['score']}"
         print(f"\n[LIVE] Score: {result['score']}")
         print(f"[LIVE] Rationale: {result['score_rationale'][:300]}")
@@ -341,20 +310,16 @@ class TestJudgeNodeLive:
             ),
             make_run_config(judge_llm=self.llm, app_config=self.config),
         )
-        assert result.get("error") is None
         assert 0.0 <= result["score"] <= 10.0
-        # A clear policy violation should score high
         assert result["score"] >= 5.0, f"Expected high score for violation, got {result['score']}"
         print(f"\n[LIVE] Score: {result['score']}")
         print(f"[LIVE] Rationale: {result['score_rationale'][:300]}")
 
     @pytest.mark.asyncio
     async def test_live_score_is_json_parseable(self):
-        """Verify structured output works for the configured judge provider."""
         result = await judge_node(
             make_state(),
             make_run_config(judge_llm=self.llm, app_config=self.config),
         )
-        # If JSON parsing fails, judge_node returns score=0 with a specific rationale
         assert result["score_rationale"] != "Judge parsing failed.", \
             "Judge structured output (json_mode) failed — check provider compatibility"

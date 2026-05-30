@@ -21,10 +21,11 @@ def _answer_text(result: dict) -> str:
         return raw
 
 
-def _build_record(result: dict, session_id: str, depth: int) -> AttackRecord:
+def _build_record(result: dict, session_id: str, depth: int, episode: int) -> AttackRecord:
     return AttackRecord(
         session_id=session_id,
         iteration=depth,
+        episode=episode,
         strategy="mcts",
         prompt=result.get("current_prompt", ""),
         response=result.get("current_response", ""),
@@ -81,6 +82,7 @@ class MCTSOrchestrator(MultiTurnOrchestrator):
         base_state: dict,
         run_config: dict,
         prompt_source,
+        episode: int = 0,
     ) -> EpisodeResult:
         root = MCTSNode(
             conversation_history=[], prompt="", response="",
@@ -94,7 +96,7 @@ class MCTSOrchestrator(MultiTurnOrchestrator):
             if not self._is_terminal(node, base_state):
                 new_children = await self._expand(
                     node, prompt_source, exchange_fn,
-                    base_state, run_config, attacker_llm, all_records,
+                    base_state, run_config, attacker_llm, all_records, episode,
                 )
                 if new_children:
                     node = new_children[0]
@@ -152,7 +154,7 @@ class MCTSOrchestrator(MultiTurnOrchestrator):
 
     async def _expand(
         self, node, prompt_source, exchange_fn,
-        base_state, run_config, attacker_llm, all_records,
+        base_state, run_config, attacker_llm, all_records, episode: int = 0,
     ) -> list[MCTSNode]:
         if hasattr(prompt_source, "next_k_prompts"):
             candidates = await prompt_source.next_k_prompts(
@@ -187,7 +189,7 @@ class MCTSOrchestrator(MultiTurnOrchestrator):
             )
             node.children.append(child)
             new_children.append(child)
-            all_records.append(_build_record(result, base_state["session_id"], node.depth))
+            all_records.append(_build_record(result, base_state["session_id"], node.depth, episode))
         return new_children
 
     async def _multiturn_mutation_simulate(

@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING
 
 from jinja2 import Template
 from langchain_core.messages import HumanMessage
-from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 
 from redteamagentloop.logger import get_session_logger
@@ -27,15 +26,11 @@ class JudgeOutput(BaseModel):
     is_refusal: bool
 
 
-async def judge_node(state: "RedTeamState", config: RunnableConfig) -> dict:
-    if state.get("error") is not None:
-        return {}  # pass through upstream error (e.g. max_iterations_reached)
-
+async def judge_node(state: "RedTeamState", config: dict) -> dict:
     if not state["current_response"]:
         return {
             "score": 0.0,
             "score_rationale": "Target produced no response.",
-            "error": None,
         }
 
     cfg = config.get("configurable", {})
@@ -80,7 +75,6 @@ async def judge_node(state: "RedTeamState", config: RunnableConfig) -> dict:
             return {
                 "score": score,
                 "score_rationale": result.reasoning,
-                "error": None,
             }
         except Exception:
             if attempt == 1:
@@ -89,6 +83,6 @@ async def judge_node(state: "RedTeamState", config: RunnableConfig) -> dict:
                     exc_info=True,
                     extra={"node": "judge", "iteration": state["iteration_count"], "session_id": session_id},
                 )
-                return {"score": 0.0, "score_rationale": "Judge parsing failed.", "error": None}
+                return {"score": 0.0, "score_rationale": "Judge parsing failed."}
 
-    return {"score": 0.0, "score_rationale": "Judge failed.", "error": None}
+    return {"score": 0.0, "score_rationale": "Judge failed."}

@@ -15,6 +15,11 @@ from redteamagentloop.agent.strategies.obfuscation import (
     ObfuscatedRequest,
 )
 from redteamagentloop.agent.strategies.static_file import StaticFileStrategy
+from redteamagentloop.agent.strategies.agent_specific import (
+    ToolInjection,
+    MemoryPoisoning,
+    MultiHopManipulation,
+)
 
 __all__ = [
     "STRATEGY_REGISTRY",
@@ -30,4 +35,7 @@ __all__ = [
     "ObfuscatedRequest",
     "FinServSpecific",
     "StaticFileStrategy",
+    "ToolInjection",
+    "MemoryPoisoning",
+    "MultiHopManipulation",
 ]

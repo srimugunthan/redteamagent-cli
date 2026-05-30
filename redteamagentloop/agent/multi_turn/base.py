@@ -47,6 +47,7 @@ class MultiTurnOrchestrator(ABC):
         base_state: dict,
         run_config: dict,
         prompt_source: PromptSource,
+        episode: int = 0,
     ) -> EpisodeResult: ...
 
     async def run_all_episodes(
@@ -58,8 +59,10 @@ class MultiTurnOrchestrator(ABC):
         max_episodes: int,
     ) -> list[EpisodeResult]:
         results = []
-        for _ in range(max_episodes):
-            result = await self.run_episode(exchange_fn, base_state, run_config, prompt_source)
+        for episode_idx in range(max_episodes):
+            result = await self.run_episode(
+                exchange_fn, base_state, run_config, prompt_source, episode=episode_idx
+            )
             results.append(result)
             if result.successful:
                 break
