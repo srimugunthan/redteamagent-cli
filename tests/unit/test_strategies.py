@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from redteamagentloop.agent.strategies import STRATEGY_REGISTRY, AttackStrategy
 from redteamagentloop.agent.strategies.finserv_specific import _select_sub_vector
-from redteamagentloop.agent.strategies.obfuscation import _b64_encode, _rot13, _leetspeak
+from redteamagentloop.agent.strategies.generic_attacks import _b64_encode, _rot13, _leetspeak
 
 
 # ---------------------------------------------------------------------------
@@ -47,6 +47,7 @@ def make_state(objective: str = "elicit unlicensed financial advice") -> dict:
 
 
 ALL_STRATEGY_NAMES = [
+    # generic
     "DirectJailbreak",
     "PersonaHijack",
     "DirectInjection",
@@ -61,6 +62,35 @@ ALL_STRATEGY_NAMES = [
     "ToolInjection",
     "MemoryPoisoning",
     "MultiHopManipulation",
+    # RAG — context
+    "RAGConflictingChunkInjection",
+    "RAGContextStuffing",
+    "RAGDistractorDocument",
+    "RAGLongContextDilution",
+    "RAGPositionBiasProbe",
+    # RAG — data leakage
+    "RAGCrossUserIsolation",
+    "RAGMembershipInference",
+    "RAGPiiExfiltration",
+    "RAGVerbatimExtraction",
+    # RAG — faithfulness
+    "RAGHallucinationUnderAmbiguity",
+    "RAGRefusalBypass",
+    "RAGSourceMisattribution",
+    "RAGSycophancyOverride",
+    "RAGTemporalConfusion",
+    # RAG — injection
+    "RAGDirectPromptInjection",
+    "RAGIndirectPromptInjection",
+    "RAGInstructionOverride",
+    "RAGRoleConfusion",
+    "RAGSystemPromptExtraction",
+    # RAG — retriever
+    "RAGEmbeddingInversion",
+    "RAGEmptyRetrievalProbe",
+    "RAGKeywordInjection",
+    "RAGQueryDrift",
+    "RAGSparseDenseMismatch",
 ]
 
 

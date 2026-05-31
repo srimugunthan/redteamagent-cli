@@ -31,6 +31,7 @@ class AttackStrategy(ABC):
     name: str
     description: str
     risk_level: Literal["low", "medium", "high"]
+    target_types: tuple[str, ...] = ("llm", "rag", "agent")  # override to restrict
 
     @abstractmethod
     async def generate_prompt(

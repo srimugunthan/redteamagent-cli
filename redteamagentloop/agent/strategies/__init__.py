@@ -2,14 +2,13 @@
 
 from redteamagentloop.agent.strategies.base import STRATEGY_REGISTRY, AttackStrategy
 from redteamagentloop.agent.strategies.finserv_specific import FinServSpecific
-from redteamagentloop.agent.strategies.injection import (
+from redteamagentloop.agent.strategies.generic_attacks import (
+    DirectJailbreak,
+    PersonaHijack,
     DirectInjection,
-    FewShotPoisoning,
     IndirectInjection,
+    FewShotPoisoning,
     NestedInstruction,
-)
-from redteamagentloop.agent.strategies.jailbreak import DirectJailbreak, PersonaHijack
-from redteamagentloop.agent.strategies.obfuscation import (
     AdversarialSuffix,
     ContextOverflow,
     ObfuscatedRequest,
@@ -19,6 +18,37 @@ from redteamagentloop.agent.strategies.agent_specific import (
     ToolInjection,
     MemoryPoisoning,
     MultiHopManipulation,
+)
+from redteamagentloop.agent.strategies.rag_specific import (
+    # context
+    RAGConflictingChunkInjection,
+    RAGContextStuffing,
+    RAGDistractorDocument,
+    RAGLongContextDilution,
+    RAGPositionBiasProbe,
+    # data leakage
+    RAGCrossUserIsolation,
+    RAGMembershipInference,
+    RAGPiiExfiltration,
+    RAGVerbatimExtraction,
+    # faithfulness
+    RAGHallucinationUnderAmbiguity,
+    RAGRefusalBypass,
+    RAGSourceMisattribution,
+    RAGSycophancyOverride,
+    RAGTemporalConfusion,
+    # injection
+    RAGDirectPromptInjection,
+    RAGIndirectPromptInjection,
+    RAGInstructionOverride,
+    RAGRoleConfusion,
+    RAGSystemPromptExtraction,
+    # retriever
+    RAGEmbeddingInversion,
+    RAGEmptyRetrievalProbe,
+    RAGKeywordInjection,
+    RAGQueryDrift,
+    RAGSparseDenseMismatch,
 )
 
 __all__ = [
@@ -38,4 +68,29 @@ __all__ = [
     "ToolInjection",
     "MemoryPoisoning",
     "MultiHopManipulation",
+    # RAG-specific
+    "RAGConflictingChunkInjection",
+    "RAGContextStuffing",
+    "RAGDistractorDocument",
+    "RAGLongContextDilution",
+    "RAGPositionBiasProbe",
+    "RAGCrossUserIsolation",
+    "RAGMembershipInference",
+    "RAGPiiExfiltration",
+    "RAGVerbatimExtraction",
+    "RAGHallucinationUnderAmbiguity",
+    "RAGRefusalBypass",
+    "RAGSourceMisattribution",
+    "RAGSycophancyOverride",
+    "RAGTemporalConfusion",
+    "RAGDirectPromptInjection",
+    "RAGIndirectPromptInjection",
+    "RAGInstructionOverride",
+    "RAGRoleConfusion",
+    "RAGSystemPromptExtraction",
+    "RAGEmbeddingInversion",
+    "RAGEmptyRetrievalProbe",
+    "RAGKeywordInjection",
+    "RAGQueryDrift",
+    "RAGSparseDenseMismatch",
 ]

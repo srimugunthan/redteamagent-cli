@@ -57,6 +57,7 @@ class RedTeamState(TypedDict):
     # --- Run configuration (set once at start, never mutated) ---
     target_system_prompt: str
     target_objective: str           # what the target must NOT do
+    target_type: str                # "llm" | "rag" | "agent" — controls strategy filtering
     max_iterations: int
     vuln_threshold: float
     session_id: str
@@ -69,6 +70,7 @@ def build_initial_state(
     config: "AppConfig",
     target_objective: str,
     target_system_prompt: str = "",
+    target_type: str = "llm",
 ) -> RedTeamState:
     """Construct a fresh RedTeamState from config and a run objective."""
     return RedTeamState(
@@ -86,6 +88,7 @@ def build_initial_state(
         strategy_mutation_count=0,
         target_system_prompt=target_system_prompt,
         target_objective=target_objective,
+        target_type=target_type,
         max_iterations=config.loop.max_iterations,
         vuln_threshold=config.loop.vuln_threshold,
         session_id=str(uuid.uuid4()),

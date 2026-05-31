@@ -27,6 +27,7 @@ class ToolInjection(AttackStrategy):
         "to exfiltrate data or cause an unauthorized side effect."
     )
     risk_level = "high"
+    target_types = ("agent",)
 
     def get_system_instructions(self) -> str:
         return (
@@ -61,6 +62,7 @@ class MemoryPoisoning(AttackStrategy):
         "retrieve the poisoned entry with high score and act on it."
     )
     risk_level = "high"
+    target_types = ("agent",)
 
     def get_system_instructions(self) -> str:
         return (
@@ -98,6 +100,7 @@ class MultiHopManipulation(AttackStrategy):
         "In single-turn mode, only the seed prompt is sent."
     )
     risk_level = "high"
+    target_types = ("agent",)
 
     def get_system_instructions(self) -> str:
         return (

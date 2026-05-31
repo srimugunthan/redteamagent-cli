@@ -402,6 +402,7 @@ def main() -> None:
                 config=app_config,
                 target_objective=args.objective,
                 target_system_prompt=args.system_prompt or target.system_prompt,
+                target_type=getattr(target, "target_type", "llm"),
             )
             if app_config.loop.multi_turn.mode == "single_turn":
                 await _run_target(

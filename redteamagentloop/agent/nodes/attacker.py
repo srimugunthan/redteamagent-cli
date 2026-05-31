@@ -40,21 +40,22 @@ def _try_static_prompt(app_config, strategy_name: str) -> str | None:
 _MAX_GUARDRAIL_BLOCKS = 3
 
 
-def _available_strategies(failed: set[str]) -> list[str]:
+def _available_strategies(failed: set[str], target_type: str = "llm") -> list[str]:
     from redteamagentloop.agent.strategies.static_file import get_library
     names = sorted(STRATEGY_REGISTRY.keys())
     available = [
         n for n in names
         if n not in failed
         and not (n == "StaticFile" and get_library() is None)
+        and target_type in STRATEGY_REGISTRY[n].target_types
     ]
     return available if available else names  # fallback: retry all if all failed
 
 
-async def _next_strategy(failed: set[str]) -> str:
+async def _next_strategy(failed: set[str], target_type: str = "llm") -> str:
     global _strategy_index
     async with _strategy_lock:
-        available = _available_strategies(failed)
+        available = _available_strategies(failed, target_type)
         strategy = available[_strategy_index % len(available)]
         _strategy_index += 1
         return strategy
@@ -82,9 +83,10 @@ async def attacker_node(state: "RedTeamState", config: dict) -> dict:
     # Strategy selection — rotate away from failed strategies.
     current = state["current_strategy"]
     failed = state["failed_strategies"]
+    target_type = state.get("target_type", "llm")
     strategy_switched = False
     if not current or current in failed:
-        current = await _next_strategy(failed)
+        current = await _next_strategy(failed, target_type)
         strategy_switched = True
 
     strategy: AttackStrategy = AttackStrategy.from_name(current)
