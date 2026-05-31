@@ -9,7 +9,10 @@ Automated closed-loop LLM red-teaming agent built on LangGraph. Probes target LL
 ## Demo
 
 
-https://github.com/user-attachments/assets/6b32ad20-0d6b-4d03-b7cf-62d2e6c2e81f
+
+https://github.com/user-attachments/assets/c3a3b6b4-7701-4e62-8b68-afb00250ad3a
+
+
 
 
 ---
