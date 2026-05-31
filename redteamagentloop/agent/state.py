@@ -71,10 +71,11 @@ def build_initial_state(
     target_objective: str,
     target_system_prompt: str = "",
     target_type: str = "llm",
+    initial_strategy: str = "",
 ) -> RedTeamState:
     """Construct a fresh RedTeamState from config and a run objective."""
     return RedTeamState(
-        current_strategy="",
+        current_strategy=initial_strategy,
         current_prompt="",
         current_response="",
         score=0.0,

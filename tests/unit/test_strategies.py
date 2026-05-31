@@ -91,6 +91,32 @@ ALL_STRATEGY_NAMES = [
     "RAGKeywordInjection",
     "RAGQueryDrift",
     "RAGSparseDenseMismatch",
+    # agent — category A
+    "AgentDirectSystemPromptOverride",
+    "AgentIndirectToolOutputInjection",
+    "AgentGoalHijackingRoleConfusion",
+    "AgentJailbreakNestedInstruction",
+    "AgentContextWindowOverflowInjection",
+    # agent — category B
+    "AgentParameterPoisoning",
+    "AgentToolChainingAbuse",
+    "AgentPrivilegeEscalationViaTool",
+    "AgentAdversarialToolOutputInjection",
+    "AgentToolEnumeration",
+    # agent — category C
+    "AgentMultiSessionMemoryPoisoning",
+    "AgentCompromisedInitialStateInjection",
+    "AgentStateRollbackAbuse",
+    "AgentCrossSessionMemoryLeakage",
+    # agent — category E
+    "AgentChainOfThoughtManipulation",
+    "AgentPlanSabotageAdversarialSubGoal",
+    "AgentInfiniteLoopPlanningStall",
+    "AgentFalsePremiseInjectionReasoning",
+    # agent — category F
+    "AgentSystemPromptExfiltration",
+    "AgentMemoryKnowledgeBaseExfiltration",
+    "AgentToolCredentialExfiltration",
 ]
 
 

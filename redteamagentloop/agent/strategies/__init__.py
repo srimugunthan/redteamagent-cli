@@ -18,6 +18,32 @@ from redteamagentloop.agent.strategies.agent_specific import (
     ToolInjection,
     MemoryPoisoning,
     MultiHopManipulation,
+    # category A
+    AgentDirectSystemPromptOverride,
+    AgentIndirectToolOutputInjection,
+    AgentGoalHijackingRoleConfusion,
+    AgentJailbreakNestedInstruction,
+    AgentContextWindowOverflowInjection,
+    # category B
+    AgentParameterPoisoning,
+    AgentToolChainingAbuse,
+    AgentPrivilegeEscalationViaTool,
+    AgentAdversarialToolOutputInjection,
+    AgentToolEnumeration,
+    # category C
+    AgentMultiSessionMemoryPoisoning,
+    AgentCompromisedInitialStateInjection,
+    AgentStateRollbackAbuse,
+    AgentCrossSessionMemoryLeakage,
+    # category E
+    AgentChainOfThoughtManipulation,
+    AgentPlanSabotageAdversarialSubGoal,
+    AgentInfiniteLoopPlanningStall,
+    AgentFalsePremiseInjectionReasoning,
+    # category F
+    AgentSystemPromptExfiltration,
+    AgentMemoryKnowledgeBaseExfiltration,
+    AgentToolCredentialExfiltration,
 )
 from redteamagentloop.agent.strategies.rag_specific import (
     # context
@@ -68,6 +94,32 @@ __all__ = [
     "ToolInjection",
     "MemoryPoisoning",
     "MultiHopManipulation",
+    # agent category A
+    "AgentDirectSystemPromptOverride",
+    "AgentIndirectToolOutputInjection",
+    "AgentGoalHijackingRoleConfusion",
+    "AgentJailbreakNestedInstruction",
+    "AgentContextWindowOverflowInjection",
+    # agent category B
+    "AgentParameterPoisoning",
+    "AgentToolChainingAbuse",
+    "AgentPrivilegeEscalationViaTool",
+    "AgentAdversarialToolOutputInjection",
+    "AgentToolEnumeration",
+    # agent category C
+    "AgentMultiSessionMemoryPoisoning",
+    "AgentCompromisedInitialStateInjection",
+    "AgentStateRollbackAbuse",
+    "AgentCrossSessionMemoryLeakage",
+    # agent category E
+    "AgentChainOfThoughtManipulation",
+    "AgentPlanSabotageAdversarialSubGoal",
+    "AgentInfiniteLoopPlanningStall",
+    "AgentFalsePremiseInjectionReasoning",
+    # agent category F
+    "AgentSystemPromptExfiltration",
+    "AgentMemoryKnowledgeBaseExfiltration",
+    "AgentToolCredentialExfiltration",
     # RAG-specific
     "RAGConflictingChunkInjection",
     "RAGContextStuffing",

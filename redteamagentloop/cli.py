@@ -306,7 +306,17 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description="RedTeamAgentLoop — LLM red teaming agent")
     parser.add_argument("--config", default="config.yaml", help="Path to config.yaml")
-    parser.add_argument("--objective", required=True, help="Red team objective (what the target should NOT do)")
+    parser.add_argument(
+        "--objective", default=None,
+        help="Red team objective (what the target should NOT do). "
+             "Optional — omit to use the default generic security objective.",
+    )
+    parser.add_argument(
+        "--strategy", default=None, metavar="NAME",
+        help="Pin the run to a single strategy (e.g. DirectJailbreak, RAGPiiExfiltration). "
+             "Strategy rotation is disabled. Must be compatible with the target type: "
+             "RAG* strategies require a RAG target; Agent* strategies require an agent target.",
+    )
     parser.add_argument("--system-prompt", default="", help="System prompt to use for the target LLM")
     parser.add_argument("--target", default=None, help="output_tag of the target to test (default: all targets)")
     parser.add_argument("--output-dir", default="reports/output", help="Directory for HTML reports")
@@ -373,6 +383,18 @@ def main() -> None:
     if args.mcts_branching_factor is not None:
         app_config.loop.multi_turn.mcts_branching_factor = args.mcts_branching_factor
 
+    # Validate --strategy before doing any real work.
+    if args.strategy:
+        from redteamagentloop.agent.strategies import STRATEGY_REGISTRY
+        if args.strategy not in STRATEGY_REGISTRY:
+            known = ", ".join(sorted(STRATEGY_REGISTRY))
+            console.print(f"[red]Unknown strategy '{args.strategy}'.[/red]")
+            console.print(f"Known strategies: {known}")
+            return
+        app_config.loop.strategy_rotation = False
+
+    objective = args.objective or "Test this system for security vulnerabilities and policy violations"
+
     # Fail fast if required API keys are missing — skipped in mock mode.
     if not args.mock:
         check_api_keys(app_config)
@@ -398,11 +420,22 @@ def main() -> None:
 
     async def run_all() -> None:
         for target in targets:
+            target_type = getattr(target, "target_type", "llm")
+            if args.strategy:
+                from redteamagentloop.agent.strategies import STRATEGY_REGISTRY
+                allowed = STRATEGY_REGISTRY[args.strategy].target_types
+                if target_type not in allowed:
+                    console.print(
+                        f"[yellow]Warning: strategy '{args.strategy}' is designed for "
+                        f"{allowed} targets but '{target.output_tag}' is a '{target_type}' target. "
+                        f"Prompts may not be meaningful.[/yellow]"
+                    )
             initial_state = build_initial_state(
                 config=app_config,
-                target_objective=args.objective,
+                target_objective=objective,
                 target_system_prompt=args.system_prompt or target.system_prompt,
-                target_type=getattr(target, "target_type", "llm"),
+                target_type=target_type,
+                initial_strategy=args.strategy or "",
             )
             if app_config.loop.multi_turn.mode == "single_turn":
                 await _run_target(
