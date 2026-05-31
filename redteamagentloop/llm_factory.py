@@ -187,6 +187,8 @@ def build_target_llm(target: "TargetConfig"):
         return HttpTargetAdapter(target)
     if target_type == "agent":
         return AgentTargetAdapter(target)
+    if target_type == "mock":
+        return build_mock_target()
 
     from langchain_openai import ChatOpenAI
 

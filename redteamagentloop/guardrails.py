@@ -11,6 +11,8 @@ from dataclasses import dataclass
 
 # ---------------------------------------------------------------------------
 # Blocked categories — hardcoded, not user-configurable.
+# Legal/ethical liability: Running a tool that autonomously sends CBRN synthesis requests 
+# to external APIs (even as part of testing) creates real legal exposure, regardless of intent to red teaming. 
 # ---------------------------------------------------------------------------
 
 BLOCKED_CATEGORIES: list[str] = [

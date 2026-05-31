@@ -25,7 +25,7 @@ class TargetConfig(BaseModel):
     rpm: int = 0  # calls per minute; 0 = no limit
 
     # RAG target fields — all defaulted so existing LLM configs load unchanged
-    target_type: Literal["llm", "rag", "agent"] = "llm"
+    target_type: Literal["llm", "rag", "agent", "mock"] = "llm"
     endpoint_url: str = ""
     request_field: str = "query"
     response_field: str = "answer"

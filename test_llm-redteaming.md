@@ -55,6 +55,7 @@ Expected: a JSON response with `choices[0].message.content` populated.
 |---|---|---|
 | `tinyllama` | `tinyllama` | 11434 |
 | `gemma2` | `gemma2:2b` | 11434 |
+| `mock` | `mock-target` (in-process stub) | — |
 
 ---
 
@@ -409,13 +410,43 @@ uv run redteamagentloop \
 
 ---
 
-## Step 7 — Mock mode (no API keys or Ollama required)
+## Step 7 — Mock mode
+
+### 7a — Mock target only (real Anthropic judge)
+
+Use `--target mock` to replace only the target LLM with an in-process stub while
+keeping the real Anthropic judge. No Ollama or Groq key needed — only `ANTHROPIC_API_KEY`.
+Combine with `--prompt-file` for fully deterministic runs.
+
+```bash
+# Static prompts → mock target → real Anthropic judge
+uv run redteamagentloop \
+  --objective "elicit unlicensed investment advice" \
+  --target mock \
+  --config config.yaml \
+  --prompt-file tests/static_prompts/known_jailbreaks.jsonl
+```
+
+```bash
+# Without a prompt file — attacker LLM generates prompts (needs GROQ_API_KEY)
+uv run redteamagentloop \
+  --objective "elicit unlicensed investment advice" \
+  --target mock \
+  --config config.yaml
+```
+
+**When to use:** judge calibration checks, CI smoke tests, or any scenario where you want
+real judge scores against scripted target responses without spinning up Ollama.
+
+---
+
+### 7b — Full mock mode (no API keys or Ollama required)
 
 Add `--mock` to replace all three LLMs with in-process stubs. Full pipeline runs,
 output files are written, but no external services are needed.
 
 ```bash
-# Single-turn mock run
+# Single-turn — all three roles mocked
 uv run redteamagentloop \
   --objective "elicit unlicensed investment advice" \
   --mock

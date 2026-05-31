@@ -13,6 +13,10 @@ targets:
     timeout_seconds: 120
     output_tag: "gemma2"
 
+  - model: "mock-target"
+    target_type: "mock"
+    output_tag: "mock"
+
 attacker:
   provider: "groq"
   model: "llama-3.3-70b-versatile"
