@@ -37,7 +37,7 @@ loop:
   max_iterations: 10
   vuln_threshold: 7.0
   strategy_rotation: true
-  max_mutations_per_strategy: 0
+  max_mutations_per_strategy: 1
   early_stop_on_success: false
   # --- multi-turn parameters (ignored when mode == single_turn) ---
   multi_turn:
