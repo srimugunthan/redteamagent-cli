@@ -1,9 +1,10 @@
 # RedTeamAgentLoop
 
-Automated closed-loop LLM red-teaming agent built on LangGraph. Probes target LLMs for policy violations using adversarial prompts, mutation, and a judge LLM to score responses.
+Automated closed-loop LLM red-teaming agent . Probes target LLMs or target RAG or target Agent for policy violations using adversarial prompts,
+A judge LLM to score responses.
 
 - **Attacker:** Groq API (`llama-3.3-70b-versatile`)
-- **Target:** Any OpenAI-compatible endpoint (default: local tinyLLama model using Ollama)
+- **Target:** Any OpenAI-compatible endpoint (default: local tinyLLama model using Ollama) or RAG/Agent that exposes HTTP endpoint
 - **Judge:** Claude Haiku via Anthropic API
 ---
 ## Demo
