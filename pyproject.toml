@@ -15,6 +15,7 @@ dependencies = [
     "aiosqlite>=0.20.0",
     "ragas>=0.1.0",
     "python-dotenv>=1.0.0",
+    "python-pptx>=1.0.2",
 ]
 
 [project.optional-dependencies]
@@ -43,5 +44,9 @@ packages = ["redteamagentloop"]
 dev = [
     "fastapi>=0.136.3",
     "httpx>=0.28.1",
+    "ipykernel>=7.3.0",
+    "jupyter>=1.1.1",
+    "nbclient>=0.11.0",
+    "nbconvert>=7.17.1",
     "uvicorn>=0.48.0",
 ]

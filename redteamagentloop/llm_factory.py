@@ -238,6 +238,55 @@ def build_judge_llm(config: "AppConfig") -> BaseChatModel:
 # Mock LLMs — no network calls, no API keys required
 # ---------------------------------------------------------------------------
 
+def _make_default_app_config():
+    """Minimal app-config stand-in for library use without config.yaml."""
+    from types import SimpleNamespace
+    return SimpleNamespace(
+        attacker=SimpleNamespace(prompt_file=None),
+        loop=SimpleNamespace(strategy_rotation=True, max_mutations_per_strategy=8),
+        targets=[SimpleNamespace(target_type="llm")],
+    )
+
+
+def build_run_config(
+    attacker_llm=None,
+    target_llm=None,
+    judge_llm=None,
+    app_config=None,
+    attacker_rpm: int = 0,
+    target_rpm: int = 0,
+    judge_rpm: int = 0,
+    allowed_tools: list[str] | None = None,
+) -> dict:
+    """Build the run-config dict expected by every node.
+
+    All parameters are optional. Omitted LLMs are lazy-built by the node on
+    first call (requires app_config or env vars). Omitted app_config defaults
+    to an AppConfig with all-default values (strategy_rotation=True, etc.).
+
+    Returns:
+        {"configurable": {attacker_llm, target_llm, judge_llm,
+                          app_config, *_rate_limiter, allowed_tools}}
+    """
+    from redteamagentloop.ratelimit import RateLimiter
+
+    if app_config is None:
+        app_config = _make_default_app_config()
+
+    configurable: dict = {
+        "app_config": app_config,
+        "attacker_llm": attacker_llm,
+        "target_llm": target_llm,
+        "judge_llm": judge_llm,
+        "attacker_rate_limiter": RateLimiter(attacker_rpm),
+        "target_rate_limiter": RateLimiter(target_rpm),
+        "judge_rate_limiter": RateLimiter(judge_rpm),
+    }
+    if allowed_tools is not None:
+        configurable["allowed_tools"] = allowed_tools
+    return {"configurable": configurable}
+
+
 def build_mock_attacker() -> BaseChatModel:
     """Attacker stub that returns scripted adversarial prompts."""
     from unittest.mock import AsyncMock, MagicMock

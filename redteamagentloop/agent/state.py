@@ -1,7 +1,7 @@
 """State schema for RedTeamAgentLoop.
 
 All nodes receive a RedTeamState and return a partial dict of changed fields.
-_merge() in cli.py handles field accumulation (lists append, sets union).
+merge() handles field accumulation: list fields append, set fields union, all others overwrite.
 """
 
 from __future__ import annotations
@@ -64,6 +64,71 @@ class RedTeamState(TypedDict):
 
     # --- Strategy rotation ---
     strategy_mutation_count: int  # mutation engine cycles on current strategy; resets on strategy change
+
+
+# ---------------------------------------------------------------------------
+# State merge — accumulates node output into the running state dict
+# ---------------------------------------------------------------------------
+
+_APPEND_FIELDS: frozenset[str] = frozenset({"attack_history", "successful_attacks"})
+_UNION_FIELDS: frozenset[str] = frozenset({"failed_strategies"})
+
+
+def merge(state: dict, updates: dict) -> None:
+    """Apply a node's partial-update dict back into the shared state in-place.
+
+    - Fields in _APPEND_FIELDS (attack_history, successful_attacks): list-extend.
+    - Fields in _UNION_FIELDS  (failed_strategies): set-union.
+    - All other fields: plain overwrite.
+    """
+    for key, value in updates.items():
+        if key in _APPEND_FIELDS:
+            state[key] = state.get(key, []) + value
+        elif key in _UNION_FIELDS:
+            state[key] = state.get(key, set()) | value
+        else:
+            state[key] = value
+
+
+# ---------------------------------------------------------------------------
+# State factories
+# ---------------------------------------------------------------------------
+
+def build_state(
+    objective: str,
+    system_prompt: str = "",
+    target_type: str = "llm",
+    max_iterations: int = 50,
+    vuln_threshold: float = 7.0,
+    initial_strategy: str = "",
+    session_id: str | None = None,
+) -> "RedTeamState":
+    """Build a fresh RedTeamState without requiring an AppConfig object.
+
+    Suitable for notebook and library use where config.yaml is not available.
+    All parameters have sensible defaults; only ``objective`` is required.
+    """
+    import uuid as _uuid
+    return RedTeamState(
+        current_strategy=initial_strategy,
+        current_prompt="",
+        current_response="",
+        score=0.0,
+        score_rationale="",
+        iteration_count=0,
+        attack_history=[],
+        successful_attacks=[],
+        failed_strategies=set(),
+        mutation_queue=[],
+        current_mutations=[],
+        strategy_mutation_count=0,
+        target_system_prompt=system_prompt,
+        target_objective=objective,
+        target_type=target_type,
+        max_iterations=max_iterations,
+        vuln_threshold=vuln_threshold,
+        session_id=session_id or str(_uuid.uuid4()),
+    )
 
 
 def build_initial_state(

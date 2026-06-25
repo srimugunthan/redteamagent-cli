@@ -100,6 +100,11 @@ Organized into four sections: (1) Foundational LLM Red Teaming, (2) Jailbreak At
 **Citations:** ~300+  
 **Link:** https://arxiv.org/abs/2312.02119
 
+PyRIT: A Framework for Security Risk
+Identification and Red Teaming in Generative AI
+Systems
+Gary D. Lopez Munoz et al
+
 ---
 
 ### 11. AutoDAN: Generating Stealthy Jailbreak Prompts on Aligned Language Models

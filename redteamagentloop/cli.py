@@ -13,7 +13,7 @@ from redteamagentloop.exceptions import (
     AttackerLLMFailed, CircuitBreakerTripped, MaxIterationsReached, TargetUnreachable,
 )
 from redteamagentloop.logger import configure_logging, get_log_path, get_session_logger
-from redteamagentloop.agent.state import build_initial_state
+from redteamagentloop.agent.state import build_initial_state, merge
 from redteamagentloop.agent.nodes.attacker import attacker_node
 from redteamagentloop.agent.nodes.target_caller import target_caller_node
 from redteamagentloop.agent.nodes.judge import judge_node
@@ -25,19 +25,6 @@ from redteamagentloop.agent.nodes.mutation_engine import mutation_engine_node
 
 console = Console()
 
-_APPEND_FIELDS = {"attack_history", "successful_attacks"}
-_UNION_FIELDS = {"failed_strategies"}
-
-
-def _merge(state: dict, updates: dict) -> None:
-    for key, value in updates.items():
-        if key in _APPEND_FIELDS:
-            state[key] = state.get(key, []) + value
-        elif key in _UNION_FIELDS:
-            state[key] = state.get(key, set()) | value
-        else:
-            state[key] = value
-
 
 async def _run_target_loop(
     initial_state: dict,
@@ -48,7 +35,7 @@ async def _run_target_loop(
     """Plain async loop — the LangGraph-free execution path.
 
     Drives attacker → target → judge → loop_controller in a while loop,
-    applying _merge() after each node to accumulate list/set fields.
+    applying merge() after each node to accumulate list/set fields.
     dashboard.update() is called directly instead of via astream().
     """
     judge_fn = (
@@ -66,10 +53,10 @@ async def _run_target_loop(
 
     try:
         while True:
-            _merge(state, await attacker_node(state, run_config))
-            _merge(state, await target_caller_node(state, run_config))
-            _merge(state, await judge_fn(state, run_config))
-            _merge(state, await loop_controller_node(state, run_config))
+            merge(state, await attacker_node(state, run_config))
+            merge(state, await target_caller_node(state, run_config))
+            merge(state, await judge_fn(state, run_config))
+            merge(state, await loop_controller_node(state, run_config))
 
             if dashboard is not None and state.get("attack_history"):
                 dashboard.update(state["attack_history"][-1])
@@ -78,10 +65,10 @@ async def _run_target_loop(
             if route == "END":
                 break
             if route == "vuln_logger":
-                _merge(state, await vuln_logger_node(state, run_config))
-                _merge(state, await mutation_engine_node(state, run_config))
+                merge(state, await vuln_logger_node(state, run_config))
+                merge(state, await mutation_engine_node(state, run_config))
             elif route == "mutation_engine":
-                _merge(state, await mutation_engine_node(state, run_config))
+                merge(state, await mutation_engine_node(state, run_config))
 
     except MaxIterationsReached:
         log.info(

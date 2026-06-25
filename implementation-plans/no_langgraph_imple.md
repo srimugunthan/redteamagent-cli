@@ -1,5 +1,186 @@
 # Analysis: Removing LangGraph from Single-Turn Mode
 
+# What LangGraph actually provides here
+
+## 1. Live streaming — the one concrete benefit
+
+This is the only thing in `_run_target` that would require non-trivial work to replicate without LangGraph:
+
+```python
+# cli.py — _run_target()
+async for state in graph.astream(initial_state, config=run_config, stream_mode="values"):
+    final_state = state
+    history_so_far = state.get("attack_history", [])
+    while displayed < len(history_so_far):
+        dashboard.update(history_so_far[displayed])   # ← live terminal updates
+        displayed += 1
+```
+
+`graph.astream(stream_mode="values")` yields the merged state **after every node**, so the dashboard re-renders after each attacker → target → judge cycle. Without LangGraph you'd need to manually yield or callback after each step.
+
+Notably, `_run_target_multiturn` has **no live dashboard** — it only prints a final summary. That gap exists precisely because the multi-turn path bypassed LangGraph.
+
+## 2. Conditional routing — trivially replaceable
+
+```python
+graph.add_conditional_edges("loop_controller", route_after_judge, {...})
+```
+
+`route_after_judge` is just a function that returns a string. The equivalent plain Python is a simple `if/elif/else`. LangGraph makes it declarative and visualisable, not more powerful.
+
+## 3. Graph visualisation
+
+```python
+compiled.get_graph().draw_mermaid_png()  # get_graph_image()
+```
+
+Useful for documentation, not for execution.
+
+---
+
+# What LangGraph was designed for — but isn't used here
+
+| Feature | Used? |
+|---|---|
+| **Checkpointing / resume** — persist state to disk, resume a crashed run | No |
+| **Human-in-the-loop** — pause at a node, wait for approval, continue | No |
+| **Parallel node execution** — run independent nodes concurrently | No |
+| **LangSmith tracing** — built-in observability dashboard | No |
+
+These are the features that would make LangGraph genuinely irreplaceable. None are wired up.
+
+Here are the concrete disadvantages, each grounded in actual code evidence from the codebase.
+
+---
+
+# 1. Error propagation via state — antipattern forced by LangGraph
+
+LangGraph nodes cannot raise exceptions to signal failure — they must return a partial state dict. So errors become a field:
+
+```python
+# target_caller_node — must encode errors as state, not exceptions
+return {"current_response": "", "error": error_msg}
+```
+
+This forces every downstream node to defensively check for upstream errors before doing any work:
+
+```python
+# loop_controller_node
+if state.get("error") is not None:
+    return {}
+
+# target_caller_node itself
+if state.get("error") is not None:
+    return {}  # pass through upstream error
+```
+
+In the multi-turn path, `single_exchange()` could simply `raise` and let the orchestrator catch it. Instead, every node in the single-turn graph carries this defensive boilerplate. Python's native exception mechanism is strictly better here.
+
+---
+
+# 2. State schema carries dead fields for each mode
+
+`RedTeamState` has fields that only make sense in single-turn mode but are declared for the entire schema:
+
+```python
+class RedTeamState(TypedDict):
+    mutation_queue: list[str]        # single-turn only — never used in multi-turn
+    current_mutations: list[str]     # single-turn only
+    strategy_mutation_count: int     # single-turn strategy rotation — unused in multi-turn
+```
+
+Conversely, `conversation_history` — which multi-turn needs — is **not in the schema at all**. It gets injected as an untyped ad-hoc key:
+
+```python
+# base.py — single_exchange()
+state = {**base_state, "current_prompt": prompt, "conversation_history": conversation_history}
+```
+
+`RedTeamState` is a `TypedDict` but `conversation_history` has no declared type, no default, and no IDE autocomplete. The schema is simultaneously bloated with unused fields and missing a field that is actively used.
+
+---
+
+# 3. Full state is copied and yielded after every node
+
+```python
+# cli.py — _run_target()
+async for state in graph.astream(initial_state, config=run_config, stream_mode="values"):
+    final_state = state
+```
+
+`stream_mode="values"` yields the **entire merged state** after each of the 6 nodes per iteration. The `attack_history` list grows by one record every iteration. After 50 iterations each record is a few KB:
+
+```
+iteration 50: 6 nodes × full state copy = 6 × ~150 KB = ~900 KB of data moved
+              just for the dashboard to check if attack_history grew by one entry
+```
+
+The multi-turn path avoids this entirely — it accumulates `all_records` in a plain list and prints one summary at the end. No streaming overhead.
+
+---
+
+# 4. Control flow is hidden in the graph definition
+
+In multi-turn, you can read the routing logic linearly as a plain `if/else`. In single-turn, the execution order is encoded across two files:
+
+```python
+# graph.py — you must read this to understand what runs after loop_controller
+graph.add_conditional_edges(
+    "loop_controller",
+    route_after_judge,          # defined in loop_controller.py
+    {"vuln_logger": "vuln_logger", "mutation_engine": "mutation_engine",
+     "attacker": "attacker", "END": END},
+)
+graph.add_edge("vuln_logger", "mutation_engine")
+graph.add_edge("mutation_engine", "attacker")
+```
+
+```python
+# loop_controller.py — the actual routing logic, separate file
+def route_after_judge(state) -> str:
+    if state.get("error") == "max_iterations_reached": return "END"
+    if state.get("error") is not None: return "END"
+    if state["score"] >= state["vuln_threshold"]: return "vuln_logger"
+    if len(state["mutation_queue"]) > 0: return "attacker"
+    return "mutation_engine"
+```
+
+To understand one iteration's execution you need to mentally join `graph.py` + `loop_controller.py` + know which edges are conditional vs fixed. In multi-turn the same logic is a readable `for` loop with visible `if` branches.
+
+---
+
+# 5. Testing LangGraph nodes is harder than plain functions
+
+The summary from earlier in this session records the direct evidence: during Phase 3 test implementation, patching `StateGraph.add_node` as a side effect caused:
+
+```
+AttributeError: 'str' object has no attribute 'compiled'
+```
+
+because LangGraph's internals were disturbed by the mock. The fix was to bypass the graph entirely and call the nodes as plain functions — which is exactly what multi-turn does by design. The multi-turn node tests in `test_rag_phase4.py` and `test_rag_phase5.py` all call `target_caller_node`, `rag_judge_node` directly with a hand-crafted `run_config` dict, with no LangGraph involved. They are simpler and more reliable for it.
+
+---
+
+# 6. LangGraph version lock on the critical execution path
+
+LangGraph is a fast-moving 0.x library. Its API has changed breaking between minor versions (the `add_conditional_edges` signature, `stream_mode` values, `RunnableConfig` shape). Single-turn's core loop is directly coupled to LangGraph's API surface. Multi-turn is insulated — its only dependency on LangGraph is the `RunnableConfig` type annotation, which could be replaced with `dict` in one line.
+
+---
+
+# Summary
+
+| Disadvantage | Affects single-turn? | Affects multi-turn? |
+|---|---|---|
+| Error-as-state antipattern | Yes — all 6 nodes carry `error` check boilerplate | No — would just raise |
+| State schema mismatch | Yes — dead fields, missing `conversation_history` | No — passes plain dict |
+| Full state streaming overhead | Yes — 6 copies per iteration, grows with history | No — plain list |
+| Hidden control flow across files | Yes — graph.py + loop_controller.py + edge map | No — visible loop |
+| Test friction / framework coupling | Yes — Phase 3 test breakage is direct evidence | No — plain function calls |
+| LangGraph version lock | Yes — core loop depends on LangGraph API | No — only `RunnableConfig` type hint |
+
+The uncomfortable conclusion: for this codebase as currently written, LangGraph costs more than it gives in single-turn mode. The one genuine benefit — per-node state streaming for the live dashboard — could be replicated with a simple callback or async generator in plain Python, which would also give multi-turn mode a live dashboard (which it currently lacks).
+# Replacing Langgraph-howto
+
 This document analyses every change required to make the single-turn execution path
 non-LangGraph-based, consistent with how multi-turn already works.
 
