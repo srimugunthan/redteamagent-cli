@@ -6,6 +6,22 @@ A judge LLM to score responses.
 - **Attacker:** Groq API (`llama-3.3-70b-versatile`)
 - **Target:** Any OpenAI-compatible endpoint (default: local tinyLLama model using Ollama) or RAG/Agent that exposes HTTP endpoint
 - **Judge:** Claude Haiku via Anthropic API
+
+---
+## Main features
+
+- supports attacks on target LLM or target RAG or target Agent. (10 generic attacks, 24 RAG specific attacks, 24 Agent specific attacks)
+
+- supports greybox attacks and detection,  for eg: context corruption attack in RAG, tool abuse in Agents etc
+
+- supports single turn attacks with mutation as well as multi turn attack strategies (Crescendo, monte carlo tree search)
+
+- supports both LLM driven attack generation and static attacks from a file. supports mock target, mock judge mode to test without API keys
+
+- checks for financial  services specific violations like "unlicensed financial advice"
+
+-  output: a HTML report and logs the vulnerabilities in output file
+
 ---
 ## Demo
 
